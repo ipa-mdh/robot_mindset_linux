@@ -94,7 +94,7 @@ autoinstall:
     - type: partition
       id: boot-part
       device: disk0
-      size: 5G       # ✅ custom /boot size
+      size: {{ args.storage.boot.size }}
       flag: boot
       number: 2
       # preserve: false
@@ -152,7 +152,7 @@ autoinstall:
       id: crypt-root
       volume: crypt-part
       dm_name: crypt-root
-      key: setup
+      key: {{ args.storage.password }}
 
     - type: format
       id: root-fmt

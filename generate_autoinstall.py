@@ -28,27 +28,32 @@ def render_autoinstall(context: dict):
 def generate_autoinstall_yaml():
     print("🔧 Ubuntu 24.04 Autoinstall Seed Generator")
 
+    username = "mdh"
+    realname = "Max Daiber-Huppert"
+    hostname = "ipa-ws1120"
+    boot_size = "9G"
+    password = "asdf"
+    LUKS_password = "asdf"
+
     # Prompt for username and password
-    # username = input("👤 Enter username for new user: ")
-    # while True:
-    #     password = getpass.getpass("🔑 Enter password: ")
-    #     confirm = getpass.getpass("🔁 Confirm password: ")
-    #     if password == confirm:
-    #         break
-    #     print("❌ Passwords do not match. Try again.")
+    username = input("👤 Enter username for new user: ")
+    while True:
+        password = getpass.getpass("🔑 Enter password: ")
+        confirm = getpass.getpass("🔁 Confirm password: ")
+        if password == confirm:
+            break
+        print("❌ Passwords do not match. Try again.")
         
-    # while True:
-    #     LUKS_password = getpass.getpass("🔑 Enter LUKS password: ")
-    #     LUKS_confirm = getpass.getpass("🔁 Confirm LUKS password: ")
-    #     if LUKS_password == LUKS_confirm:
-    #         break
-    #     print("❌ Passwords do not match. Try again.")
+    while True:
+        LUKS_password = getpass.getpass("🔑 Enter LUKS password: ")
+        LUKS_confirm = getpass.getpass("🔁 Confirm LUKS password: ")
+        if LUKS_password == LUKS_confirm:
+            break
+        print("❌ Passwords do not match. Try again.")
 
     # Ask if user wants GUI
     install_ui = input("🖥️ Install Ubuntu Desktop UI (y/N)? ").strip().lower() == 'y'
 
-    password = "asdf"
-    LUKS_password = "asdf"
 
     # Generate hashed password
     hashed_password = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
@@ -59,14 +64,12 @@ def generate_autoinstall_yaml():
     if install_ui:
         packages += ["ubuntu-desktop", "gnome-terminal"]
 
-    username = "mdh"
-    realname = "Max Daiber-Huppert"
-    hostname = "ipa-ws1120"
     context = {'identitiy': {'username': username, 
                              'realname': realname,
                              'password': hashed_password,
                              'hostname': hostname},
-               'storage': {'password': LUKS_password}}
+               'storage': {'boot': {'size': boot_size}, 
+                           'password': LUKS_password}}
 
     autoinstall = render_autoinstall(context)
 
