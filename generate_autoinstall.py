@@ -69,7 +69,9 @@ def generate_autoinstall_yaml():
                              'password': hashed_password,
                              'hostname': hostname},
                'storage': {'boot': {'size': boot_size}, 
-                           'password': LUKS_password}}
+                           'password': LUKS_password},
+               'packages': packages
+               }
 
     autoinstall = render_autoinstall(context)
 
