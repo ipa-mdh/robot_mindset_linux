@@ -1,0 +1,25 @@
+environment: dev
+identitiy:
+  hostname: my_host_name
+  realname: Setup
+  username: setup
+  password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512
+storage:
+  password: setup
+  boot:
+    size: 9G
+  disk:
+    match: size.largest # size.largest, ssd
+
+packages:
+  # - ubuntu-desktop
+  - ansible
+  - git
+  - python3
+  - python3-pip
+  - python3-venv
+  - docker-buildx
+
+ssh:
+  authorized_keys:
+    - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIS0ToieXEJK+fzlwqKIc7LGg24vSLqb6y1Nfqne0lCH mdh@ipa-ws1120

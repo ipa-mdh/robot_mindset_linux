@@ -2,35 +2,35 @@
 # See the autoinstall documentation at:
 # https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
 autoinstall:
-  apt:
-    disable_components: []
-    fallback: offline-install
-    geoip: true
-    mirror-selection:
-      primary:
-      - country-mirror
-      - arches: &id001
-        - amd64
-        - i386
-        uri: http://archive.ubuntu.com/ubuntu/
-      - arches: &id002
-        - s390x
-        - arm64
-        - armhf
-        - powerpc
-        - ppc64el
-        - riscv64
-        uri: http://ports.ubuntu.com/ubuntu-ports
-    preserve_sources_list: false
-    security:
-    - arches: *id001
-      uri: http://security.ubuntu.com/ubuntu/
-    - arches: *id002
-      uri: http://ports.ubuntu.com/ubuntu-ports
-  codecs:
-    install: false
-  drivers:
-    install: false
+  # apt:
+  #   disable_components: []
+  #   fallback: offline-install
+  #   geoip: true
+  #   mirror-selection:
+  #     primary:
+  #     - country-mirror
+  #     - arches: &id001
+  #       - amd64
+  #       - i386
+  #       uri: http://archive.ubuntu.com/ubuntu/
+  #     - arches: &id002
+  #       - s390x
+  #       - arm64
+  #       - armhf
+  #       - powerpc
+  #       - ppc64el
+  #       - riscv64
+  #       uri: http://ports.ubuntu.com/ubuntu-ports
+  #   preserve_sources_list: false
+  #   security:
+  #   - arches: *id001
+  #     uri: http://security.ubuntu.com/ubuntu/
+  #   - arches: *id002
+  #     uri: http://ports.ubuntu.com/ubuntu-ports
+  # codecs:
+  #   install: false
+  # drivers:
+  #   install: false
   identity:
     hostname: {{ args.identitiy.hostname }}
     password: {{ args.identitiy.password }}
@@ -61,8 +61,8 @@ autoinstall:
     id: ubuntu-server
     search_drivers: false
   ssh:
-    allow-pw: true
-    authorized-keys: []
+    allow-pw: no
+    authorized-keys: {{ args.ssh.authorized_keys }}
     install-server: true
   storage:
     # layout:
@@ -75,8 +75,11 @@ autoinstall:
     - type: disk
       id: disk0
       match:
+{%- if args.storage.disk.match == "size.largest" %}
         size: largest
-        # ssd: true
+{%- elif args.storage.disk.match == "ssd" %}
+        ssd: true
+{%- endif %}
       ptable: gpt
       wipe: superblock-recursive
       grub_device: true
@@ -169,3 +172,19 @@ autoinstall:
   # - chmod 600 /tmp/luks-key
   updates: security
   version: 1
+
+{%- if args.packages is defined %}
+  packages: {{ args.packages }}
+{%- endif %}
+
+  late-commands:
+    # 1. Copy .deb packages to the target system
+    - mkdir -p /target/root/deps
+    - cp /cdrom/deps/*.deb /target/root/deps/
+
+    # 2. Install the .deb packages inside the target system
+    - curtin in-target -- dpkg -i /root/deps/*.deb || true
+
+    # 3. Fix missing dependencies (optional, in case deps are incomplete)
+    - curtin in-target -- apt-get update
+    - curtin in-target -- apt-get install -f -y
