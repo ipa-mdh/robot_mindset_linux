@@ -179,12 +179,13 @@ autoinstall:
 
   late-commands:
     # 1. Copy .deb packages to the target system
-    - mkdir -p /target/root/deps
-    - cp /cdrom/deps/*.deb /target/root/deps/
+    - mkdir -p /target/root/data
+    - cp /cdrom/data /target/root/data/
 
     # 2. Install the .deb packages inside the target system
-    - curtin in-target -- dpkg -i /root/deps/*.deb || true
+    - curtin in-target -- dpkg -i /root/data/deps/*.deb || true
 
-    # 3. Fix missing dependencies (optional, in case deps are incomplete)
-    - curtin in-target -- apt-get update
-    - curtin in-target -- apt-get install -f -y
+    # 3. install additional packages
+    - curtin in-target -- curl -o webmin-setup-repo.sh https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh 
+    - curtin in-target -- sh webmin-setup-repo.sh
+    - curtin in-target -- apt-get install --install-recommends webmin usermin
