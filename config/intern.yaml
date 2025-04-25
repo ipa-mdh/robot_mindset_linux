@@ -1,0 +1,12 @@
+environments:
+  - environment: dev
+    image: ubuntu-24.04.2-desktop-amd64.iso
+    autoinstall: 
+      source:
+        id: ubuntu-desktop-minimal
+  
+  - environment: run
+    image: ubuntu-22.04.5-live-server-amd64.iso
+    autoinstall: 
+      source:
+        id: ubuntu-server-minimal

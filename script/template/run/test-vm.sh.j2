@@ -4,7 +4,7 @@ WORK_DIR=test-vm
 mkdir -p $WORK_DIR
 
 SEED_ISO=output/seed.iso
-INSTALL_ISO=images/ubuntu-24.04.2-live-server-amd64.iso
+INSTALL_ISO=images/{{ args.image }}
 
 qemu_img_file="$WORK_DIR/test-disk.qcow2"
 
@@ -22,5 +22,3 @@ qemu-system-x86_64 \
   -drive file="$SEED_ISO",format=raw,media=cdrom \
   -boot order=c,menu=on \
   -net nic -net user
-#   -nographic \
-  # -serial mon:stdio \

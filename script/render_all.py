@@ -5,21 +5,6 @@ import shutil
 import yaml
 from loguru import logger
 
-def get_config(path:Path):
-    processed = {}
-    if path.exists():
-        with open(path, "r") as f:
-            raw = f.read()
-            data_org = yaml.safe_load(raw)
-            template = Template(raw)
-            rendered = template.render(args=data_org)
-            logger.debug("Rendered template:")
-            logger.debug(rendered)
-            
-            processed = yaml.safe_load(rendered)
-
-    return processed
-
 def render_path(path: Path, context: dict) -> Path:
     """Render each part of the path as a Jinja2 template."""
     parts = []
@@ -86,10 +71,8 @@ def get_template_folder(environment: str):
     return template_root
 
 class Render():
-    def __init__(self, destination: Path, config_path: Path):
-        self.config_path = config_path
-        
-        self.context = get_config(self.config_path)
+    def __init__(self, destination: Path, context: dict):
+        self.context = context
         
         self.working_dir = destination
         self.working_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +89,3 @@ class Render():
         
         # Render the template folder
         render_template_folder(template_root, self.working_dir, self.context)
-        
-        # Copy config to working dir
-        dest = self.working_dir / ".robot_mindset_linux.yaml"
-        shutil.copy(self.config_path, dest)
