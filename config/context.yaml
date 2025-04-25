@@ -1,6 +1,4 @@
 environment: dev
-data:
-  debs: data/debs
 
 autoinstall:
   identitiy:

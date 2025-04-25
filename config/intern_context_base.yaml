@@ -4,9 +4,13 @@ environments:
     autoinstall: 
       source:
         id: ubuntu-desktop-minimal
-  
+    data:
+        debs: data/dev/debs
+
   - environment: run
     image: ubuntu-22.04.5-live-server-amd64.iso
     autoinstall: 
       source:
         id: ubuntu-server-minimal
+    data:
+        debs: data/run/debs

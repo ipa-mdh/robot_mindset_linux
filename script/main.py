@@ -70,7 +70,7 @@ def copy_paths(data, destination):
         elif source.is_file():
             shutil.copy2(source, dest)
         else:
-            raise FileNotFoundError(f"Source '{source}' does not exist.")
+            logger.error(f"Source '{source}' does not exist.")
 
 def get_context(intern_context_base_path=Path("config/intern_context_base.yaml"),
          context_path=Path("config/context.yaml")):

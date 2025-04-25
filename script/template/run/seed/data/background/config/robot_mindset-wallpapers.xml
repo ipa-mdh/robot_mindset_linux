@@ -10,13 +10,4 @@
      <scolor>#000000</scolor>
      <shade_type>solid</shade_type>
  </wallpaper>
- <wallpaper>
-     <name>Robot Mindset Dev</name>
-     <filename>/usr/share/backgrounds/robot_mindset_dev.png</filename>
-     <filename-dark>/usr/share/backgrounds/robot_mindset_dev_dark.png</filename-dark>
-     <options>zoom</options>
-     <pcolor>#000000</pcolor>
-     <scolor>#000000</scolor>
-     <shade_type>solid</shade_type>
- </wallpaper>
 </wallpapers>
