@@ -72,20 +72,20 @@ def copy_paths(data, destination):
         else:
             raise FileNotFoundError(f"Source '{source}' does not exist.")
 
-def get_context(intern_config_path=Path("config/intern.yaml"),
+def get_context(intern_context_base_path=Path("config/intern_context_base.yaml"),
          context_path=Path("config/context.yaml")):
     
-    intern_config = get_config(intern_config_path)
+    intern_context_base = get_config(intern_context_base_path)
     context_config = get_config(context_path)
 
-    context = find_and_merge_environment(intern_config, context_config)
+    context = find_and_merge_environment(intern_context_base, context_config)
 
     return context
 
 def main():
     output_dir = Path("output")
 
-    intern_config_path = Path("config/intern.yaml")
+    intern_config_path = Path("config/intern_context_base.yaml")
     context_path = Path("config/context.yaml")
 
     context = get_context(intern_config_path, context_path)

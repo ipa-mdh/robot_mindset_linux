@@ -125,16 +125,28 @@ autoinstall:
   updates: security
   version: 1
 
-{%- if args.autoinstall.packages is defined %}
   packages:
+    - git
+    - python3
+    - python3-pip
+    - python3-venv
+    # --- additional packages ---
+{%- if args.autoinstall.packages is defined %}
   {%- for item in args.autoinstall.packages %}
     - {{ item }}
   {%- endfor %}
 {%- endif %}
+    # ~~~ additional packages ~~~
 
-{%- if args.autoinstall.late_commands is defined %}
   late-commands: 
+    - mkdir -p /mnt/seed
+    - mount -L CIDATA /mnt/seed
+    # Copy the data folder to the target system
+    - cp -r /mnt/seed/data /target/robot_mindset/
+    # --- additional late-commands ---
+{%- if args.autoinstall.late_commands is defined %}
   {%- for item in args.autoinstall.late_commands %}
     - {{ item }}
   {%- endfor %}
 {%- endif %}
+    # ~~~ additional late-commands ~~~
