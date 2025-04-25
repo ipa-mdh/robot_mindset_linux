@@ -145,7 +145,7 @@ autoinstall:
     - mount -L CIDATA /mnt/seed
     # Copy the data folder to the target system
     - mkdir -p /target/robot_mindset
-    - cp -r /mnt/seed/data /target/robot_mindset/
+    - cp -r /mnt/seed/data /target/robot_mindset
     # --- additional late-commands ---
 {%- if args.autoinstall.late_commands is defined %}
   {%- for item in args.autoinstall.late_commands %}
