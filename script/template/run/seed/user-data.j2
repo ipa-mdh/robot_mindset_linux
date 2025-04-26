@@ -9,33 +9,16 @@ autoinstall:
     mirror-selection:
       primary:
       - country-mirror
-      - arches: &id001
-        - amd64
-        - i386
-        uri: http://archive.ubuntu.com/ubuntu/
-      - arches: &id002
-        - s390x
-        - arm64
-        - armhf
-        - powerpc
-        - ppc64el
-        - riscv64
-        uri: http://ports.ubuntu.com/ubuntu-ports
-    preserve_sources_list: false
-    security:
-    - arches: *id001
-      uri: http://security.ubuntu.com/ubuntu/
-    - arches: *id002
-      uri: http://ports.ubuntu.com/ubuntu-ports
+      - uri: "http://de.archive.ubuntu.com/ubuntu"
   codecs:
     install: false
   drivers:
     install: false
   identity:
-    hostname: ipa-ws1120
-    password: $6$WRTyfteJgY0EGZMx$wfyROHnCg.9e7TMweF2DmNMgBmHXobEG3UcZ154JEs0nWyrJUSRHTMvnr5yqlPjlr6KTofsCp9YRc3o/b07k/.
-    realname: IPA Admin
-    username: ipaadmin
+    hostname: {{ args.autoinstall.identitiy.hostname }}
+    password: {{ args.autoinstall.identitiy.password }}
+    realname: {{ args.autoinstall.identitiy.realname }}
+    username: {{ args.autoinstall.identitiy.username }}
   kernel:
     package: linux-generic
   keyboard:
@@ -43,40 +26,42 @@ autoinstall:
     toggle: null
     variant: ''
   locale: en_US.UTF-8
-  network:
-    ethernets:
-      ens18:
-        addresses:
-        - 192.168.178.30/24
-        nameservers:
-          addresses: []
-          search: [9.9.9.9]
-        routes:
-        - to: default
-          via: 192.168.178.1
-    version: 2
-  oem:
-    install: auto
+  timezone: "Europe/Berlin"
+  # network:
+  #   ethernets:
+  #     ens18:
+  #       addresses:
+  #       - 192.168.178.30/24
+  #       nameservers:
+  #         addresses: []
+  #         search: [9.9.9.9]
+  #       routes:
+  #       - to: default
+  #         via: 192.168.178.1
+  #   version: 2
   source:
-    id: ubuntu-server
+    id: {{ args.autoinstall.source.id }}
     search_drivers: false
   ssh:
-    allow-pw: true
-    authorized-keys: []
+    allow-pw: {{ args.autoinstall.ssh.allow_pw | default("no") }}
+    authorized-keys: {{ args.autoinstall.ssh.authorized_keys | default("[]") }}
     install-server: true
   storage:
     # layout:
     #   name: lvm
     #   sizing-policy: all
-    #   password: RKizGr34t!
+    #   password: {{ args.autoinstall.storage.password }}
     # If the layout feature is used to configure the disks, the config section is not used.
     # https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
     config:
     - type: disk
       id: disk0
       match:
+{%- if args.autoinstall.storage.disk.match == "size.largest" %}
         size: largest
-        # ssd: true
+{%- elif args.autoinstall.storage.disk.match == "ssd" %}
+        ssd: true
+{%- endif %}
       ptable: gpt
       wipe: superblock-recursive
       grub_device: true
@@ -94,7 +79,7 @@ autoinstall:
     - type: partition
       id: boot-part
       device: disk0
-      size: 9G
+      size: {{ args.autoinstall.storage.boot.size }}
       flag: boot
       number: 2
       # preserve: false
@@ -119,40 +104,11 @@ autoinstall:
       # preserve: false
       number: 3
 
-    # - type: dm_crypt
-    #   id: dm_crypt-0
-    #   volume: crypt-part
-    #   key: setup
-      # recovery_keyfile: /tmp/luks-recovery-key-c0mve036
-      # recovery_live_location: /root/recovery-key.txt
-      # recovery_backup_location: var/log/installer/recovery-key.txt
-      # path: /dev/mapper/dm_crypt-0
-      # preserve: false
-
-    # - type: lvm_volgroup
-    #   id: lvm_volgroup-0
-    #   name: ubuntu-vg
-    #   devices: [dm_crypt-0]
-    #   preserve: false
-
-    # - type: lvm_partition
-    #   id: lv-root
-    #   name: ubuntu-lv
-    #   volgroup: lvm_volgroup-0
-    #   size: -1
-    #   preserve: false
-
-    # - type: format
-    #   id: root-fmt
-    #   fstype: ext4
-    #   volume: lv-root
-    #   # preserve: false
-
     - type: dm_crypt
       id: crypt-root
       volume: crypt-part
       dm_name: crypt-root
-      key: RKizGr34t!
+      key: {{ args.autoinstall.storage.password }}
 
     - type: format
       id: root-fmt
@@ -164,8 +120,33 @@ autoinstall:
       id: root-mount
       path: /
       device: root-fmt
-  # early-commands:
-  # - echo 'YXNkZgo=' | base64 -d > /tmp/luks-key
-  # - chmod 600 /tmp/luks-key
+
+  # The type of updates that will be downloaded and installed after the system installation, and before rebooting into the target system
   updates: security
   version: 1
+
+  packages:
+    - git
+    - python3
+    - python3-pip
+    - python3-venv
+    # --- additional packages ---
+{%- if args.autoinstall.packages is defined %}
+  {%- for item in args.autoinstall.packages %}
+    - {{ item }}
+  {%- endfor %}
+{%- endif %}
+    # ~~~ additional packages ~~~
+
+  late-commands: 
+    - mkdir -p /mnt/seed
+    - mount -L CIDATA /mnt/seed
+    # Copy the data folder to the target system
+    - cp -r /mnt/seed/data /target/robot_mindset/
+    # --- additional late-commands ---
+{%- if args.autoinstall.late_commands is defined %}
+  {%- for item in args.autoinstall.late_commands %}
+    - {{ item }}
+  {%- endfor %}
+{%- endif %}
+    # ~~~ additional late-commands ~~~

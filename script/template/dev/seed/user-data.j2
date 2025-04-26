@@ -1,0 +1,155 @@
+#cloud-config
+# See the autoinstall documentation at:
+# https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
+autoinstall:
+  apt:
+    disable_components: []
+    fallback: offline-install
+    geoip: true
+    mirror-selection:
+      primary:
+      - country-mirror
+      - uri: "http://de.archive.ubuntu.com/ubuntu"
+  codecs:
+    install: false
+  drivers:
+    install: false
+  identity:
+    hostname: {{ args.autoinstall.identitiy.hostname }}
+    password: {{ args.autoinstall.identitiy.password }}
+    realname: {{ args.autoinstall.identitiy.realname }}
+    username: {{ args.autoinstall.identitiy.username }}
+  kernel:
+    package: linux-generic
+  keyboard:
+    layout: de
+    toggle: null
+    variant: ''
+  locale: en_US.UTF-8
+  timezone: "Europe/Berlin"
+  # network:
+  #   ethernets:
+  #     ens18:
+  #       addresses:
+  #       - 192.168.178.30/24
+  #       nameservers:
+  #         addresses: []
+  #         search: [9.9.9.9]
+  #       routes:
+  #       - to: default
+  #         via: 192.168.178.1
+  #   version: 2
+  source:
+    id: {{ args.autoinstall.source.id }}
+    search_drivers: false
+  ssh:
+    allow-pw: {{ args.autoinstall.ssh.allow_pw | default("no") }}
+    authorized-keys: {{ args.autoinstall.ssh.authorized_keys | default("[]") }}
+    install-server: true
+  storage:
+    # layout:
+    #   name: lvm
+    #   sizing-policy: all
+    #   password: {{ args.autoinstall.storage.password }}
+    # If the layout feature is used to configure the disks, the config section is not used.
+    # https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
+    config:
+    - type: disk
+      id: disk0
+      match:
+{%- if args.autoinstall.storage.disk.match == "size.largest" %}
+        size: largest
+{%- elif args.autoinstall.storage.disk.match == "ssd" %}
+        ssd: true
+{%- endif %}
+      ptable: gpt
+      wipe: superblock-recursive
+      grub_device: true
+
+    # grub partition
+    - type: partition
+      id: grub-part
+      device: disk0
+      size: 1G
+      flag: bios_grub
+      number: 1
+      # preserve: false
+
+    # boot partition
+    - type: partition
+      id: boot-part
+      device: disk0
+      size: {{ args.autoinstall.storage.boot.size }}
+      flag: boot
+      number: 2
+      # preserve: false
+
+    - type: format
+      id: boot-format
+      volume: boot-part
+      fstype: ext4
+      # preserve: false
+
+    - type: mount
+      id: boot-mount
+      path: /boot
+      device: boot-format
+
+    # root partition encypted
+    - type: partition
+      id: crypt-part
+      device: disk0
+      size: -1         # rest of disk
+      wipe: superblock
+      # preserve: false
+      number: 3
+
+    - type: dm_crypt
+      id: crypt-root
+      volume: crypt-part
+      dm_name: crypt-root
+      key: {{ args.autoinstall.storage.password }}
+
+    - type: format
+      id: root-fmt
+      fstype: btrfs
+      label: root
+      volume: crypt-root
+
+    - type: mount
+      id: root-mount
+      path: /
+      device: root-fmt
+
+  # The type of updates that will be downloaded and installed after the system installation, and before rebooting into the target system
+  updates: security
+  version: 1
+
+  packages:
+    - git
+    - python3
+    - python3-pip
+    - python3-venv
+    - cloud-image-utils
+    - inkscape
+    # --- additional packages ---
+{%- if args.autoinstall.packages is defined %}
+  {%- for item in args.autoinstall.packages %}
+    - {{ item }}
+  {%- endfor %}
+{%- endif %}
+    # ~~~ additional packages ~~~
+
+  late-commands: 
+    - mkdir -p /mnt/seed
+    - mount -L CIDATA /mnt/seed
+    # Copy the data folder to the target system
+    - mkdir -p /target/robot_mindset
+    - cp -r /mnt/seed/data /target/robot_mindset
+    # --- additional late-commands ---
+{%- if args.autoinstall.late_commands is defined %}
+  {%- for item in args.autoinstall.late_commands %}
+    - {{ item }}
+  {%- endfor %}
+{%- endif %}
+    # ~~~ additional late-commands ~~~

@@ -1,25 +1,85 @@
 environment: dev
-identitiy:
-  hostname: my_host_name
-  realname: Setup
-  username: setup
-  password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512
-storage:
-  password: setup
-  boot:
-    size: 9G
-  disk:
-    match: size.largest # size.largest, ssd
 
-packages:
-  # - ubuntu-desktop
-  - ansible
-  - git
-  - python3
-  - python3-pip
-  - python3-venv
-  - docker-buildx
+autoinstall:
+  identitiy:
+    hostname: my_host_name
+    realname: Setup
+    username: setup
+    password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512
+  storage:
+    password: setup
+    boot:
+      size: 9G
+    disk:
+      match: size.largest # size.largest, ssd
 
-ssh:
-  authorized_keys:
-    - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIS0ToieXEJK+fzlwqKIc7LGg24vSLqb6y1Nfqne0lCH mdh@ipa-ws1120
+  # packages:
+  #   - curl
+  #   - docker-buildx
+  #   ## --- dev --- 
+  #   # - ubuntu-desktop
+  #   - ansible
+  #   - git
+  #   - python3
+  #   - python3-pip
+  #   - python3-venv
+  #   - cloud-image-utils
+  #   - inkscape
+
+  ssh:
+    authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIS0ToieXEJK+fzlwqKIc7LGg24vSLqb6y1Nfqne0lCH mdh@ipa.robot-mindset.1password
+
+  late_commands:
+    - curtin in-target --target /target bash /robot_mindset/data/debs/install.sh || true
+    - curtin in-target --target /target bash /robot_mindset/data/background/setup.sh || true
+    # # - mkdir -p /mnt/seed
+    # # - mount -L CIDATA /mnt/seed
+    # # # 1. Copy .deb packages to the target system
+    # # - mkdir -p /target/robot_mindset
+    # # - cp -r /mnt/seed/data /target/robot_mindset
+
+    # # 2. Install the .deb packages inside the target system
+    # - curtin in-target -- dpkg -i /target/root/robot_mindset/data/debs/*.deb || true
+
+    # # 3. Fix missing dependencies (optional, in case deps are incomplete)
+    # - curtin in-target -- apt-get update
+    # - curtin in-target -- apt-get install -f -y
+    
+    # # - curtin in-target -- apt-get install -y git python3 python3-pip python3-venv docker-buildx
+
+    # # --- Background ---
+    # - mkdir -p /target/usr/share/backgrounds/
+    # - cp /mnt/seed/data/background/robot_mindset*.png /target/usr/share/backgrounds/
+    # # - curtin in-target -- gsettings set org.gnome.desktop.background picture-uri "file:///usr/share/backgrounds/robot_mindset_dev.png"  || true
+    # # - curtin in-target -- gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/backgrounds/robot_mindset_dev_dark.png"  || true
+
+    # - mkdir -p /target/usr/share/gnome-background-properties/
+    # - cp /mnt/seed/data/background/robot_mindset-wallpapers.xml /target/usr/share/gnome-background-properties/
+
+    # # # Create the dconf database entry
+    # # - mkdir -p /target/etc/dconf/db/local.d/
+    # # - echo "[org/gnome/desktop/background]" > /target/etc/dconf/db/local.d/00-background
+    # # - echo "picture-uri      = 'file:///usr/share/backgrounds/robot_mindset_dev.png'" >> /target/etc/dconf/db/local.d/00-background
+    # # - echo "picture-uri-dark = 'file:///usr/share/backgrounds/robot_mindset_dev_dark.png'" >> /target/etc/dconf/db/local.d/00-background
+
+    # # # Make sure to lock it if you want to prevent users from changing it (optional)
+    # # - mkdir -p /target/etc/dconf/db/local.d/locks/
+    # # - echo "/org/gnome/desktop/background/picture-uri" > /target/etc/dconf/db/local.d/locks/background
+    # # - echo "/org/gnome/desktop/background/picture-uri-dark" >> /target/etc/dconf/db/local.d/locks/background
+
+    # # # Update the dconf database
+    # # - curtin in-target -- dconf update
+
+
+    # # # 1. Copy .deb packages to the target system
+    # # - mkdir -p /target/root/data
+    # # - cp /cdrom/data /target/root/data/
+
+    # # # 2. Install the .deb packages inside the target system
+    # # - curtin in-target -- dpkg -i /root/data/deps/*.deb || true
+
+    # # # 3. install additional packages
+    # # - curtin in-target -- curl -o webmin-setup-repo.sh https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh 
+    # # - curtin in-target -- sh webmin-setup-repo.sh
+    # # - curtin in-target -- apt-get install --install-recommends webmin usermin

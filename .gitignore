@@ -178,6 +178,7 @@ pyrightconfig.json
 *.iso
 *.deb
 
-output
+/data
+/output
 
-*.qcow2
+test-vm
