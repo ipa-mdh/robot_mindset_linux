@@ -28,7 +28,7 @@ autoinstall:
 
   ssh:
     authorized_keys:
-      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIS0ToieXEJK+fzlwqKIc7LGg24vSLqb6y1Nfqne0lCH mdh@ipa-ws1120
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIS0ToieXEJK+fzlwqKIc7LGg24vSLqb6y1Nfqne0lCH mdh@ipa.robot-mindset.1password
 
   late_commands:
     - curtin in-target --target /target bash /robot_mindset/data/debs/install.sh || true
