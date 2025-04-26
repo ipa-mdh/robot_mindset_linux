@@ -1,0 +1,9 @@
+collections:
+  - name: community.general
+    version: 9.5.7
+  
+roles:
+  - name: NIC
+    src: https://github.com/ipa-mdh/ansible-role-nic.git
+  - name: add-user
+    src: https://github.com/ipa-mdh/ansible-role-add-user.git

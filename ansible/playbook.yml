@@ -1,0 +1,14 @@
+---
+- name: Example Playbook
+  hosts: vms
+  roles:
+    - role: NIC
+      network_name: private
+      ethernet_interface_name: ens19
+      ipv4: 10.0.0.3/24
+      auto_connect: true
+    - role: NIC
+      network_name: internet
+      ethernet_interface_name: ens19
+      method4: auto
+      auto_connect: true
