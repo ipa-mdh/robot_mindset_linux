@@ -31,8 +31,9 @@ autoinstall:
       - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIS0ToieXEJK+fzlwqKIc7LGg24vSLqb6y1Nfqne0lCH mdh@ipa.robot-mindset.1password
 
   late_commands:
-    - curtin in-target --target /target bash /robot_mindset/data/debs/install.sh || true
-    - curtin in-target --target /target bash /robot_mindset/data/background/setup.sh || true
+    - curtin in-target --target /target bash /robot_mindset/data/install.sh || true
+    # - curtin in-target --target /target bash /robot_mindset/data/debs/install.sh || true
+    # - curtin in-target --target /target bash /robot_mindset/data/background/setup.sh || true
     # # - mkdir -p /mnt/seed
     # # - mount -L CIDATA /mnt/seed
     # # # 1. Copy .deb packages to the target system
@@ -83,3 +84,12 @@ autoinstall:
     # # - curtin in-target -- curl -o webmin-setup-repo.sh https://raw.githubusercontent.com/webmin/webmin/master/webmin-setup-repo.sh 
     # # - curtin in-target -- sh webmin-setup-repo.sh
     # # - curtin in-target -- apt-get install --install-recommends webmin usermin
+
+ansible:
+  add_user:
+    users:
+      - name: mdh
+        password: test
+        groups:
+          - docker
+        nonsudo_allowed_sudo_commands: []

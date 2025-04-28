@@ -141,6 +141,7 @@ autoinstall:
     # ~~~ additional packages ~~~
 
   late-commands: 
+    # --- copy data folder ---
     - mkdir -p /mnt/seed
     - mount -L CIDATA /mnt/seed
     # Copy the data folder to the target system

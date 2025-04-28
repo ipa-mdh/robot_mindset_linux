@@ -1,0 +1,6 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+cp $SCRIPT_DIR/sudoers.d/* /etc/sudoers.d/
+chmod 0440 /etc/sudoers.d/*

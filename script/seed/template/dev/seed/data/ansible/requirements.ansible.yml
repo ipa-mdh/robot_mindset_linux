@@ -1,6 +1,6 @@
 collections:
   - name: community.general
-    version: 9.5.7
+    # version: 9.5.7
   
 roles:
   - name: NIC
