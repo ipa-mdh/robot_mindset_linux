@@ -12,7 +12,7 @@ else
     source $SCRIPT_DIR/venv/bin/activate
 fi
 
-pip3 install -r $SCRIPT_DIRrequirements.pip.txt
+pip3 install -r $SCRIPT_DIR/requirements.pip.txt
 
 # LANG=C.UTF-8 ansible-galaxy install -g -f -r roles/requirements.yml
 ansible-galaxy collection install -f -r $SCRIPT_DIR/requirements.ansible.yml

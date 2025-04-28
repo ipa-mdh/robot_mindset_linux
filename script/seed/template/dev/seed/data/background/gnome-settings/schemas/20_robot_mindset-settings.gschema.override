@@ -8,7 +8,7 @@ picture-uri-dark = 'file:///usr/share/backgrounds/robot_mindset_dev_dark.png'
 show-desktop-icons = false
 
 [org.gnome.login-screen]
-logo='/usr/share/plymouth/ubuntu-logo.png'
+logo='/usr/share/plymouth/robot_mindset_logo.png'
 
 ##################################
 # ubuntu common session settings #

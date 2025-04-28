@@ -9,4 +9,4 @@ if [ -d "venv" ]; then
     source venv/bin/activate
 fi
 
-ansible-playbook playbook.yaml
+ansible-playbook playbook.yml
