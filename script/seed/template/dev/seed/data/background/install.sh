@@ -8,7 +8,7 @@ function copy_images {
     # copy only png files
     find $SCRIPT_DIR/image/background/ -type f -name "*.png" -exec cp {} "/usr/share/backgrounds/" \;
 
-    find $SCRIPT_DIR/image/logo/ -type f -name "*.png" -exec cp {} "/usr/share/pymouth/" \;
+    find $SCRIPT_DIR/image/logo/ -type f -name "*.png" -exec cp {} "/usr/share/plymouth/" \;
 }
 
 function copy_configuration {
