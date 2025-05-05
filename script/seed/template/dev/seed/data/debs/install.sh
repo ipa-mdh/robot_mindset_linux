@@ -27,3 +27,4 @@ function install_docker {
 install_apt_dependencies
 install_local_debs
 install_webmin
+install_docker
