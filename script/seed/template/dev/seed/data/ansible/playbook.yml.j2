@@ -1,7 +1,16 @@
 ---
 - name: Example Playbook
   hosts: localhost
-  roles:
+  roles:    
+{%- if args.ansible is defined %}
+  {%- if args.ansible.add_user is defined %}
+    {%- if args.ansible.add_user.users is not none %}
+    - role: add-user
+      users: {{ args.ansible.add_user.users }}
+    {%- endif %}
+  {%- endif %}
+{%- endif %}
+
     - role: NIC
       network_name: private
       ethernet_interface_name: ens19
@@ -12,12 +21,3 @@
       ethernet_interface_name: ens19
       method4: auto
       auto_connect: true
-    
-{%- if args.ansible is defined %}
-  {%- if args.ansible.add_user is defined %}
-    {%- if args.ansible.add_user.users is not none %}
-    - role: add-user
-      users: {{ args.ansible.add_user.users }}
-    {%- endif %}
-  {%- endif %}
-{%- endif %}
