@@ -5,7 +5,8 @@ environments:
       source:
         id: ubuntu-desktop-minimal
     data:
-        debs: data/dev/debs
+      debs: data/dev/debs
+      ansible: data/dev/ansible
 
   - environment: run
     image: ubuntu-22.04.5-live-server-amd64.iso
@@ -13,4 +14,4 @@ environments:
       source:
         id: ubuntu-server-minimal
     data:
-        debs: data/run/debs
+      debs: data/run/debs

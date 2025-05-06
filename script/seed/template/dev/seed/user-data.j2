@@ -27,6 +27,18 @@ autoinstall:
     variant: ''
   locale: en_US.UTF-8
   timezone: "Europe/Berlin"
+  {%- if args.networks is defined %}
+  network:
+    version: 2
+    ethernets:
+    {%- for item in args.networks %}
+      {{ item.name }}:
+        dhcp4: true
+        match:
+          macaddress: {{ item.match.macaddress }}
+        set-name: {{ item.name }}
+    {%- endfor %}
+  {%- endif %}
   # network:
   #   ethernets:
   #     ens18:

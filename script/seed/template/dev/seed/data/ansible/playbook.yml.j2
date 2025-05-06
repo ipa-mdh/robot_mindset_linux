@@ -2,22 +2,29 @@
 - name: Example Playbook
   hosts: localhost
   roles:    
-{%- if args.ansible is defined %}
-  {%- if args.ansible.add_user is defined %}
-    {%- if args.ansible.add_user.users is not none %}
-    - role: add-user
-      users: {{ args.ansible.add_user.users }}
-    {%- endif %}
-  {%- endif %}
-{%- endif %}
-
+    - role: add_user
+      users:
+        - name: mdh
+          password: test
+          groups:
+            - docker
+          nonsudo_allowed_sudo_commands: []
+    - role: vpn
+{%- if args.networks is defined %}
+  {%- for item in args.networks %}
+    {%- if item.ipv4 is defined %}
     - role: NIC
-      network_name: private
-      ethernet_interface_name: ens19
-      ipv4: 10.0.0.3/24
+      network_name: {{ item.name }}
+      ethernet_interface_name: {{ item.name }}
+      ipv4: {{ item.ipv4 }}
       auto_connect: true
+    {%- else %}
     - role: NIC
-      network_name: internet
-      ethernet_interface_name: ens19
+      network_name: {{ item.name }}
+      ethernet_interface_name: {{ item.name }}
       method4: auto
       auto_connect: true
+    {%- endif %}
+  {%- endfor %}
+{%- endif %}
+

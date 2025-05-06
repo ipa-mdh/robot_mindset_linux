@@ -5,5 +5,5 @@ collections:
 roles:
   - name: NIC
     src: https://github.com/ipa-mdh/ansible-role-nic.git
-  - name: add-user
+  - name: add_user
     src: https://github.com/ipa-mdh/ansible-role-add-user.git
