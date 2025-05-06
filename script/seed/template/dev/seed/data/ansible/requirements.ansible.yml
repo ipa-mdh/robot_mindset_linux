@@ -7,3 +7,5 @@ roles:
     src: https://github.com/ipa-mdh/ansible-role-nic.git
   - name: add_user
     src: https://github.com/ipa-mdh/ansible-role-add-user.git
+  # - name: vpn
+  #   src: https://gitlab.cc-asp.fraunhofer.de/ansible/roles/vpn.git

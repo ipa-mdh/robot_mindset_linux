@@ -2,13 +2,13 @@
 - name: Example Playbook
   hosts: localhost
   roles:    
-    - role: add_user
-      users:
-        - name: mdh
-          password: test
-          groups:
-            - docker
-          nonsudo_allowed_sudo_commands: []
+    # - role: add_user
+    #   users:
+    #     - name: mdh
+    #       password: test
+    #       groups:
+    #         - docker
+    #       nonsudo_allowed_sudo_commands: []
     - role: vpn
 {%- if args.networks is defined %}
   {%- for item in args.networks %}
