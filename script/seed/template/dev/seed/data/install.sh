@@ -29,6 +29,10 @@ bash ansible/install.sh
 bash " ansible playbook exceuted"
 echo "~~~~~~~~ Ansible ~~~~~~~~"
 
+echo "======== FreeIPA ========"
+bash freeipa/install.sh
+echo " FreeIPA client installed and configured"
+echo "~~~~~~~~ FreeIPA ~~~~~~~~"
 
 echo "Installing done"
 cd -
