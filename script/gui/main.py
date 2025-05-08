@@ -40,6 +40,7 @@ DEFAULT_CONFIG = {
 DEFAULT_PASSWORD = 'setup'
 
 STORAGE_DISKT_MATCH = ["size.largest", "ssd"]
+ENVIRONMENT = ["dev", "prod"]
 
 # Load or initialize YAML
 if os.path.exists(YAML_PATH):
@@ -74,6 +75,7 @@ with ui.stepper().props('horizontal header-nav').classes('w-full') as stepper:
                 realname = ui.input('Real Name', value=identity.get('realname', '')).classes('w-full')
                 username = ui.input('Username', value=identity.get('username', '')).classes('w-full')
                 password = ui.input('Password', value=DEFAULT_PASSWORD, password=True, password_toggle_button=True).classes('w-full')
+            env_input = ui.select(ENVIRONMENT, label='Environment', value=config.get('environment', 'dev')).classes('w-full')
             with ui.stepper_navigation().classes('w-full justify-end'):
                 ui.button('Next', on_click=stepper.next)
     with ui.step('Hardware').classes('w-full flex-grow justify-items-center') as hardware_step:
@@ -197,7 +199,7 @@ ui.button('Endable', on_click=lambda: (
 
 # Save button
 ui.button('Save Configuration', on_click=lambda _: (
-    # config.update({'environment': env_input.value}),
+    config.update({'environment': env_input.value}),
     # config.update({'networks': [
     #     {'name': n.value, 'ipv4': i.value, 'match': {'macaddress': m.value}}
     #     for _, n, i, m in network_cards
