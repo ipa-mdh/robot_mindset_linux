@@ -29,7 +29,7 @@ networks:
 
 autoinstall:
   identitiy:
-    hostname: ipa-ws1120.robot.mindset
+    hostname: demo-uefi.robot.mindset
     realname: Setup
     username: setup
     password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512
@@ -65,4 +65,4 @@ freeipa:
 # hostname will be fetched from autoisntall configuration above
   domain: robot.mindset
   server: server.ipa.robot.mindset
-  password: 2LlfWcpB6F9SEj0ga7oTa8v
+  password: 7HywRNA8HpZpq65hWv6xLoZ

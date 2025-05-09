@@ -59,13 +59,10 @@ autoinstall:
     authorized-keys: {{ args.autoinstall.ssh.authorized_keys | default("[]") }}
     install-server: true
   storage:
-    # layout:
-    #   name: lvm
-    #   sizing-policy: all
-    #   password: {{ args.autoinstall.storage.password }}
-    # If the layout feature is used to configure the disks, the config section is not used.
-    # https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
+    grub:
+      reorder_uefi: False
     config:
+    # 1) Wipe disk, GPT, and mark for grub
     - type: disk
       id: disk0
       match:
@@ -75,46 +72,55 @@ autoinstall:
         ssd: true
 {%- endif %}
       ptable: gpt
-      wipe: superblock-recursive
-      grub_device: true
+      wipe: superblock
+      grub_device: false
 
-    # grub partition
+    # # grub partition
+    # - type: partition
+    #   id: grub-part
+    #   device: disk0
+    #   size: 1G
+    #   flag: bios_grub
+
+    # 2.1) EFI System Partition
     - type: partition
-      id: grub-part
+      id: efi-part
       device: disk0
       size: 1G
-      flag: bios_grub
-      number: 1
-      # preserve: false
+      flag: esp
+      grub_device: true
+    - type: format
+      id: efi-format
+      volume: efi-part
+      fstype: fat32
+      label: ESP
+    - type: mount
+      id: efi-mount
+      device: efi-format
+      path: /boot/efi
 
-    # boot partition
+    # 2.2) Boot Partition
     - type: partition
       id: boot-part
       device: disk0
       size: {{ args.autoinstall.storage.boot.size }}
-      flag: boot
-      number: 2
-      # preserve: false
-
+      # grub_device: true
     - type: format
       id: boot-format
       volume: boot-part
       fstype: ext4
-      # preserve: false
-
+      label: BOOT
     - type: mount
       id: boot-mount
       path: /boot
       device: boot-format
 
-    # root partition encypted
+    # 3) Encrypted root on the rest
     - type: partition
       id: crypt-part
       device: disk0
       size: -1         # rest of disk
       wipe: superblock
-      # preserve: false
-      number: 3
 
     - type: dm_crypt
       id: crypt-root
