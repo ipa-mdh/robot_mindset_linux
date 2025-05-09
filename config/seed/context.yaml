@@ -1,17 +1,35 @@
 environment: dev
 
-# networks:
-#   - name: public
-#     match:
-#       macaddress: BC:24:11:4F:59:90
-#   - name: machine
-#     ipv4: 192.168.1.10/24
-#     match:
-#       macaddress: BC:24:11:DF:88:30
+environments:
+  - environment: dev
+    image: ubuntu-24.04.2-desktop-amd64.iso
+    autoinstall: 
+      source:
+        id: ubuntu-desktop-minimal
+    data:
+      debs: data/dev/debs
+      # ansible: data/dev/ansible
+
+  - environment: prod
+    image: ubuntu-22.04.5-live-server-amd64.iso
+    autoinstall: 
+      source:
+        id: ubuntu-server-minimal
+    data:
+      debs: data/run/debs
+
+networks:
+  - name: public
+    match:
+      macaddress: BC:24:11:4F:59:90
+  - name: machine
+    ipv4: 192.168.1.10/24
+    match:
+      macaddress: BC:24:11:DF:88:30
 
 autoinstall:
   identitiy:
-    hostname: demo.robot.mindset
+    hostname: demo123.robot.mindset
     realname: Setup
     username: setup
     password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512

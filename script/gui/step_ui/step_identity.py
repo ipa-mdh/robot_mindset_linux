@@ -15,7 +15,15 @@ class StepIdentity:
     def __init__(self, config):
         self.config = config
         self.DEFAULT_PASSWORD = 'setup'
-        self.ENVIRONMENT = ["dev", "prod"]
+        
+        # get list of environments
+        self.ENVIRONMENT = []
+        if 'environments' in self.config:
+            for env in self.config['environments']:
+                self.ENVIRONMENT.append(env.get('environment', ''))
+        
+        logger.debug(self.ENVIRONMENT)
+        
         self.STORAGE_DISKT_MATCH = ["size.largest", "ssd"]
         
         self._render()

@@ -4,7 +4,7 @@ import crypt
 from nicegui import ui, run, events
 from loguru import logger
 
-from utils_ui.network_table import NetworkTable, get_network_table_rows, get_networks
+from ..utils_ui.network_table import NetworkTable, get_network_table_rows, get_networks
 
 class StepHardware:
     """
@@ -48,8 +48,8 @@ class StepHardware:
                 nt.table.on('addrow', lambda e: (
                     update_config_networks(get_networks(nt.table.rows))
                 ))
-            with ui.expansion('udev rules', icon='usb', value=False).classes('w-full justify-items-center'):
-                ui.label('udev rules')
+            # with ui.expansion('udev rules', icon='usb', value=False).classes('w-full justify-items-center'):
+            #     ui.label('udev rules')
                 
     def update_config(self):
         """

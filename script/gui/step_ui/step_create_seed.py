@@ -1,17 +1,16 @@
-import yaml
-import os
-import crypt
+from pathlib import Path
 from nicegui import ui, run, events
 from loguru import logger
 
-from utils_ui.simple_table import SimpleTable
+from ..utils_ui.simple_table import SimpleTable
 
 class StepCreateSeed:
     """
     StepCreateSeed class to handle the create seed step in the GUI.
     """
-    def __init__(self, config):
+    def __init__(self, config, callback_create_seed = None):
         self.config = config
+        self.callback_create_seed = callback_create_seed
         self.DEFAULT_PASSWORD = 'setup'
         self.STORAGE_DISKT_MATCH = ["size.largest", "ssd"]
         
@@ -42,16 +41,28 @@ class StepCreateSeed:
                 # create seed iso
                 button = ui.button('Create Seed ISO', on_click=lambda: (
                     ui.notify('Creating Seed ISO...'),
-                    # create_seed_iso(config),
+                    self.callback_create_seed(self.config),
                     ui.notify('Seed ISO created successfully!')
                 ))
-                spinner = ui.spinner(size='lg')
+                # spinner = ui.spinner(size='lg')
             
+                def download_seed_iso():
+                    """
+                    Download the seed ISO.
+                    """
+                    # Placeholder for the download logic
+                    path = Path('output/seed.iso')
+                    if path.exists():
+                        # Simulate download
+                        ui.notify(f'Downloading {path.name}...')
+                        # Simulate download time
+                        ui.download.file(path, path.name)
+                        ui.notify(f'{path.name} downloaded successfully!')
+                    else:
+                        ui.notify('Seed ISO not found!', color='negative')
+                
                 # download seed iso
-                ui.button('Download Seed ISO', on_click=lambda: (
-                    ui.notify('Downloading Seed ISO...'),
-                    # download_seed_iso(),
-                    ui.notify('Seed ISO downloaded successfully!')
-                ))
+                ui.button('Download Seed ISO', icon="file_download", on_click=lambda: download_seed_iso()).props('flat')
+                
     def update_config(self):
         pass

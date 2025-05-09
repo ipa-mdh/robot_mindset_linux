@@ -4,7 +4,7 @@ import crypt
 from nicegui import ui, run, events
 from loguru import logger
 
-from utils_ui.simple_table import SimpleTable
+from ..utils_ui.simple_table import SimpleTable
 
 class StepConnectivity:
     """
