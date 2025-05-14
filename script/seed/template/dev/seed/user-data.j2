@@ -59,8 +59,7 @@ autoinstall:
     authorized-keys: {{ args.autoinstall.ssh.authorized_keys | default("[]") }}
     install-server: true
   storage:
-    grub:
-      reorder_uefi: False
+    version: 1
     config:
     # 1) Wipe disk, GPT, and mark for grub
     - type: disk
@@ -72,28 +71,37 @@ autoinstall:
         ssd: true
 {%- endif %}
       ptable: gpt
-      wipe: superblock
-      grub_device: false
+      preserve: false
+      wipe: superblock-recursive
+      grub_device: true
 
-    # # grub partition
-    # - type: partition
-    #   id: grub-part
-    #   device: disk0
-    #   size: 1G
-    #   flag: bios_grub
+    # grub partition
+    - type: partition
+      id: grub-part
+      number: 1
+      device: disk0
+      size: 4M
+      flag: bios_grub
+      wipe: superblock
+      preserve: false
+      grub_device: false
 
     # 2.1) EFI System Partition
     - type: partition
       id: efi-part
+      number: 2
       device: disk0
       size: 1G
-      flag: esp
-      grub_device: true
+      flag: boot
+      preserve: false
+      wipe: superblock
+      grub_device: UEFI
     - type: format
       id: efi-format
       volume: efi-part
       fstype: fat32
       label: ESP
+      preserve: false
     - type: mount
       id: efi-mount
       device: efi-format
@@ -102,9 +110,12 @@ autoinstall:
     # 2.2) Boot Partition
     - type: partition
       id: boot-part
+      number: 3
       device: disk0
       size: {{ args.autoinstall.storage.boot.size }}
-      # grub_device: true
+      wipe: superblock
+      grub_device: false
+      preserve: false
     - type: format
       id: boot-format
       volume: boot-part
@@ -118,9 +129,12 @@ autoinstall:
     # 3) Encrypted root on the rest
     - type: partition
       id: crypt-part
+      number: 4
       device: disk0
       size: -1         # rest of disk
       wipe: superblock
+      grub_device: false
+      preserve: false
 
     - type: dm_crypt
       id: crypt-root
@@ -138,21 +152,20 @@ autoinstall:
       id: root-mount
       path: /
       device: root-fmt
-
+  early-commands:
+    - |
+      if [ -e "/sys/firmware/efi" ]; then
+        sed -i -e "s/grub_device: UEFI/grub_device: true/" /autoinstall.yaml
+      else
+        sed -i -e "s/grub_device: UEFI/grub_device: false/" /autoinstall.yaml
+      fi
   # The type of updates that will be downloaded and installed after the system installation, and before rebooting into the target system
   updates: security
   version: 1
 
-  packages:
-    - git
-    - python3
-    - python3-pip
-    - python3-venv
-    - cloud-image-utils
-    - inkscape
-    - magic-wormhole
-    # --- additional packages ---
 {%- if args.autoinstall.packages is defined %}
+  packages:
+    # --- additional packages ---
   {%- for item in args.autoinstall.packages %}
     - {{ item }}
   {%- endfor %}
