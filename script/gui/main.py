@@ -113,14 +113,14 @@ class SeedStepperUI:
                         ui.button('Done', on_click=lambda: ui.notify('Yay!', type='positive'))
                         ui.button('Back', on_click=stepper.previous).props('flat')
 
-        # Save button
-        ui.button('Save Configuration', on_click=lambda _: (
-            step_identity.update_config(),
-            step_hardware.update_config(),
-            step_connectivity.update_config(),
-            step_create_seed.update_config(),
-            save_config(self.config)
-        ))
+        # # Save button
+        # ui.button('Save Configuration', on_click=lambda _: (
+        #     step_identity.update_config(),
+        #     step_hardware.update_config(),
+        #     step_connectivity.update_config(),
+        #     step_create_seed.update_config(),
+        #     save_config(self.config)
+        # ))
 
 if __name__ in {"__main__", "__mp_main__"}:
     # Load the YAML configuration
@@ -129,5 +129,6 @@ if __name__ in {"__main__", "__mp_main__"}:
 
     # Create the GUI
     css = SeedStepperUI(config)
+    
     
     ui.run(title='Robot Mindset Linux', port=8080)
