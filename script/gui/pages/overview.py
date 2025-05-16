@@ -8,6 +8,7 @@ from .. import theme
 from ..loguru_sink import LoguruSink
 from ..message import message
 
+from ..utils.user_storage import UserStorage
 from ..seed_stepper_ui import SeedStepperUI
 
 from seed.seed import main as seed_main
@@ -16,11 +17,12 @@ from utils.utils import get_config
 from nicegui import ui
 # from gui.main import SeedStepperUI
 
-def create_seed_iso(context):
+def create_seed_iso(context, output_dir: Path):
+    """Create a seed ISO using the provided context."""
     seed_main(
         base_context=context,
         context=context,
-        output_dir=Path("output")
+        output_dir=output_dir
     )
 
 def dump_context(data, file_path: Path):
@@ -30,17 +32,18 @@ def dump_context(data, file_path: Path):
 
 
 # Build the UI
-def content(share_dir) -> None:
+def content(data: UserStorage) -> None:
     # Load the YAML configuration
-    context_path=Path("config/seed/context.yaml")
-    output_context_path=Path("config/seed/context_out.yaml")
+    context_path = data.work_dir / "context.yaml"
     context = get_config(context_path)
 
     # Create the GUI
-    css = SeedStepperUI(context, callback_create_seed=lambda e: (
-        ui.notify('Creating Seed ISO...'),
-        logger.debug(f"Creating seed ISO with context: {e}"),
-        dump_context(e, output_context_path),
-        create_seed_iso(e),
-        ui.notify('Seed ISO created successfully!')
-    ))
+    css = SeedStepperUI(context,
+                        callback_create_seed=lambda e: (
+                            ui.notify('Creating Seed ISO...'),
+                            logger.debug(f"Creating seed ISO with context: {e}"),
+                            dump_context(e, context_path),
+                            create_seed_iso(e, data.work_dir),
+                            ui.notify('Seed ISO created successfully!')
+                        ),
+                        data=data)

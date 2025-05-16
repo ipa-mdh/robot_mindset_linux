@@ -2,7 +2,7 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-def get_config(path:Path):
+def get_config(path:Path, default=Path("config/seed/context.yaml")) -> dict:
     """
     Load a YAML configuration file.
     Args:
@@ -10,6 +10,8 @@ def get_config(path:Path):
     Returns:
         dict: Parsed YAML content.
     """
+    use_default = False
+    
     if not isinstance(path, Path):
         logger.error(f"Invalid path type: {type(path)}. Expected Path.")
         raise TypeError(f"Invalid path type: {type(path)}. Expected Path.")
@@ -17,14 +19,24 @@ def get_config(path:Path):
         logger.error(f"Invalid file type: {path.suffix}. Expected .yaml")
         raise ValueError(f"Invalid file type: {path.suffix}. Expected .yaml")
     if not path.exists():
-        logger.error(f"File not found: {path}")
-        raise FileNotFoundError(f"File not found: {path}")
+        logger.warning(f"File not found: {path}")
+        use_default = True
+        # raise FileNotFoundError(f"File not found: {default}")
     if not path.is_file():
         logger.error(f"Path is not a file: {path}")
-        raise IsADirectoryError(f"Path is not a file: {path}")
+        use_default = True
+        # raise IsADirectoryError(f"Path is not a file: {path}")
     
+    if use_default:
+        if not default.exists():
+            logger.error(f"Default file not found: {default}")
+            raise FileNotFoundError(f"Default file not found: {default}")
+        p = default
+    else:
+        p = path
+        
     config = {}
-    with open(path, "r") as f:
+    with open(p, "r") as f:
         config = yaml.safe_load(f)
     
     return config

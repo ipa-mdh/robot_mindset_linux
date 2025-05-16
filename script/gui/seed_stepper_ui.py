@@ -62,13 +62,15 @@ class SeedStepperUI:
     """
     CreateSeed class to handle the creation of the seed ISO.
     """
-    def __init__(self, config = None, callback_create_seed=None):
+    def __init__(self, config = None, callback_create_seed=None, data=None):
         if config:
             self.config = config
         else:
             self.config = DEFAULT_CONFIG.copy()
             
         self.callback_create_seed = callback_create_seed
+        
+        self.data = data
             
         self._render()
 
@@ -106,7 +108,8 @@ class SeedStepperUI:
                                                         step_connectivity.update_config(),
                                                         step_create_seed.update_config(),
                                                         self.callback_create_seed(e)
-                                                        )
+                                                        ),
+                                                     data=self.data
                                                      )
                     
                     # with ui.stepper_navigation().classes('w-full justify-end'):

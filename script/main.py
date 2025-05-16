@@ -1,9 +1,10 @@
 from pathlib import Path
 from loguru import logger
 import yaml
+import json
+import uuid
 
 from seed.seed import main as seed_main
-from utils.utils import get_config
 
 from nicegui import ui
 # from gui.main import SeedStepperUI
@@ -28,19 +29,10 @@ def dump_context(data, file_path: Path):
 
 if __name__ in {"__main__", "__mp_main__"}:
     # Load the YAML configuration
-    context_path=Path("config/seed/context.yaml")
-    output_context_path=Path("config/seed/context_out.yaml")
-    context = get_config(context_path)
-
-    # Create the GUI
-    # css = SeedStepperUI(context, callback_create_seed=lambda e: (
-    #     ui.notify('Creating Seed ISO...'),
-    #     logger.debug(f"Creating seed ISO with context: {e}"),
-    #     dump_context(e, output_context_path),
-    #     create_seed_iso(e),
-    #     ui.notify('Seed ISO created successfully!')
-    # ))
+    # context_path=Path("config/seed/context.yaml")
+    # output_context_path=Path("config/seed/context_out.yaml")
+    # context = get_config(context_path)
     
     create()
     
-    ui.run(title='Robot Mindset Linux', port=8080)
+    ui.run(title='Robot Mindset Linux', port=8080, storage_secret='seakjshzd7u23cret')

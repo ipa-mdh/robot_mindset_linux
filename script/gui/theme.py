@@ -1,10 +1,10 @@
 from contextlib import contextmanager
-from nicegui import ui
+from nicegui import ui, app
 
 from .menu import menu
 
 @contextmanager
-def frame(navtitle: str, share_dir, footer_generator=None):
+def frame(navtitle: str, footer_generator=None):
     """Custom page frame to share the same styling and behavior across all pages"""
     ui.colors(primary='#000000',
               secondary='#005C7F',
@@ -87,7 +87,7 @@ def frame(navtitle: str, share_dir, footer_generator=None):
         ''')
 
     
-    dark = ui.dark_mode()
+    dark = ui.dark_mode().bind_value(app.storage.user, 'dark')
     
     with ui.header().classes('justify-between my-header'):
         with ui.grid(columns=3).classes('gap-1 w-full wrap'):
