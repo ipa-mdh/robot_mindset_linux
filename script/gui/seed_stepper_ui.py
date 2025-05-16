@@ -78,24 +78,24 @@ class SeedStepperUI:
                 with ui.column().classes('w-full'):
                     step_identity = StepIdentity(self.config)
                     
-                    with ui.stepper_navigation().classes('w-full justify-end'):
-                        ui.button('Next', on_click=stepper.next)
+                    # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
+                    #     ui.button('Next', on_click=stepper.next)
             with ui.step('Hardware').classes('w-full flex-grow justify-items-center') as hardware_step:
                 with ui.column().classes('w-full'):
                     
                     step_hardware = StepHardware(self.config)
                     
-                    with ui.stepper_navigation().classes('w-full justify-end'):
-                        ui.button('Next', on_click=stepper.next)
-                        ui.button('Back', on_click=stepper.previous).props('flat')
+                # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
+                #     ui.button('Next', on_click=stepper.next)
+                #     ui.button('Back', on_click=stepper.previous).props('flat')
             with ui.step('Connectivity').classes('w-full flex-grow justify-items-center'):
                 with ui.column().classes('w-full'):
                     
                     step_connectivity = StepConnectivity(self.config)
                     
-                    with ui.stepper_navigation().classes('w-full justify-end'):
-                        ui.button('Next', on_click=stepper.next)
-                        ui.button('Back', on_click=stepper.previous).props('flat')
+                # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
+                #     ui.button('Next', on_click=stepper.next)
+                #     ui.button('Back', on_click=stepper.previous).props('flat')
             with ui.step('Create Seed').classes('w-full flex-grow justify-items-center'):
                 with ui.column().classes('w-full'):
                     
@@ -109,9 +109,9 @@ class SeedStepperUI:
                                                         )
                                                      )
                     
-                    with ui.stepper_navigation().classes('w-full justify-end'):
-                        ui.button('Done', on_click=lambda: ui.notify('Yay!', type='positive'))
-                        ui.button('Back', on_click=stepper.previous).props('flat')
+                    # with ui.stepper_navigation().classes('w-full justify-end'):
+                    #     ui.button('Done', on_click=lambda: ui.notify('Yay!', type='positive'))
+                    #     ui.button('Back', on_click=stepper.previous).props('flat')
 
         # # Save button
         # ui.button('Save Configuration', on_click=lambda _: (

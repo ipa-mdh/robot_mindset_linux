@@ -1,5 +1,5 @@
 from contextlib import contextmanager
-from nicegui import ui, app
+from nicegui import ui
 
 from .menu import menu
 
@@ -69,23 +69,19 @@ def frame(navtitle: str, share_dir, footer_generator=None):
             body.body--dark .q-stepper__dot {
                 background: #fff;
             }
+            
+            body.body--dark .q-stepper .q-stepper__tab {
+                background-color: #000;
+                color: #888;
+            }
 
             body.body--dark .q-stepper .q-stepper__tab--active {
-                background-color: #333333;
                 color: #fff;
             }
             
-            body.body--dark .q-stepper .q-stepper__tab--done {
+            body.body--dark .q-btn--flat {
                 background-color: #000;
                 color: #fff;
-            }
-            
-            .q-btn {
-                color: #f00; /* Light mode text */
-            }
-            
-            body.body--dark .q-btn .text-white {
-                color: #f00; /* Dark mode text */
             }
         </style>
         ''')
@@ -95,9 +91,12 @@ def frame(navtitle: str, share_dir, footer_generator=None):
     
     with ui.header().classes('justify-between my-header'):
         with ui.grid(columns=3).classes('gap-1 w-full wrap'):
-            ui.interactive_image(share_dir / 'script/gui/image/robot_mindset.svg', on_mouse=lambda: ui.navigate.to("/"), events=["mouseup"])\
-                .classes('my-icon col-span-1 justify-self-start self-start min-w-[150px] max-w-[300px]')
-            ui.label(navtitle).classes('my-title col-span-1 justify-self-center text-h4 nowrap whitespace-nowrap')
+            image_src = 'script/gui/image/robot_mindset_icon.svg'
+            ui.interactive_image(image_src, on_mouse=lambda: ui.navigate.to("/"), events=["mouseup"])\
+                .classes('my-icon col-span-1 justify-self-start self-start h-12')
+            with ui.column().classes('col-span-1 items-center gap-0 margin-0'):
+                ui.label('Robot Mindset').classes('my-title nowrap whitespace-nowrap text-center').style('color: #888;')
+                ui.label(navtitle).classes('my-title col-span-1 justify-self-center text-h4 nowrap whitespace-nowrap text-center')
             with ui.row().classes('col-span-1 justify-self-end'):
                 menu(dark)
         ui.separator()

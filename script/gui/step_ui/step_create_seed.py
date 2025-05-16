@@ -17,7 +17,7 @@ class StepCreateSeed:
         self._render()
         
     def _render(self):
-        with ui.grid(columns=2).classes('w-full flex-grow justify-items-center'):
+        with ui.grid().classes('w-full justify-items-center grid grid-cols-1 sm:grid-cols-2 gap-4'):
             with ui.expansion('Autoinstall - Late Commands', icon='terminal', value=False) \
                     .classes('w-full justify-items-center'):
                 # Autoinstall - SSH Keys

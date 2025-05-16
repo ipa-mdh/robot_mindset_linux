@@ -8,7 +8,7 @@ from .. import theme
 from ..loguru_sink import LoguruSink
 from ..message import message
 
-from ..main import SeedStepperUI
+from ..seed_stepper_ui import SeedStepperUI
 
 from seed.seed import main as seed_main
 from utils.utils import get_config

@@ -15,7 +15,7 @@ def create() -> None:
     
     @ui.page('/')
     def main_page() -> None:
-        with theme.frame('Linux Autoinstall', Path('.'), footer_generator=None):
+        with theme.frame('Linux', Path('.'), footer_generator=None):
             overview.content(share_dir)
 
     @ui.page('/changelog')

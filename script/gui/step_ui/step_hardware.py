@@ -18,9 +18,9 @@ class StepHardware:
         self._render()
         
     def _render(self):
-        with ui.grid(columns=2).classes('w-full flex-grow justify-items-center'):
+        with ui.grid().classes('w-full justify-items-center grid grid-cols-1 sm:grid-cols-2 gap-4'):
             with ui.expansion('Storage Configuration', icon='storage', value=True).classes('w-full justify-items-center'):
-                with ui.row().classes('w-full flex-grow justify-items-center'):
+                with ui.row().classes('w-full justify-items-center'):
                     with ui.card():
                         storage = self.config['autoinstall']['storage']
                         self.st_password = ui.input('Disk Password', value=storage.get('password', self.DEFAULT_PASSWORD), password=True, password_toggle_button=True).classes('w-full')
