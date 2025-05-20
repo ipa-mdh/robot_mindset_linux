@@ -25,15 +25,10 @@ def create_seed_iso(context, output_dir: Path):
             output_dir=output_dir
         )
 
-def dump_context(data, file_path: Path):
+def save_context_callback(context, file_path:Path):
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, 'w') as outfile:
-        yaml.dump(data, outfile)
-
-
-def save_context_callback(context, context_path):
-    logger.debug(f"Saving context: {context}")
-    dump_context(context, context_path)
+        yaml.dump(context, outfile)
 
 
 # Build the UI
