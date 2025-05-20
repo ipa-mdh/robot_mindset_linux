@@ -12,6 +12,7 @@ class UserStorage:
         # Create working directory for this user
         self.work_dir = base_path / self.user_id
         self.work_dir.mkdir(parents=True, exist_ok=True)
+        self.context_path = self.work_dir / 'context.yaml'
 
         # Shortcut to internal storage dict
         self._storage = app.storage.user

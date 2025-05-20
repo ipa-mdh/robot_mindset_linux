@@ -4,12 +4,13 @@ from loguru import logger
 import yaml
 
 from ..utils_ui.simple_table import SimpleTable
+from ..utils.user_storage import UserStorage
 
 class StepCreateSeed:
     """
     StepCreateSeed class to handle the create seed step in the GUI.
     """
-    def __init__(self, config, callback_create_seed = None, callback_save_context=None, data=None):
+    def __init__(self, config, callback_create_seed = None, callback_save_context=None, data:UserStorage=None):
         self.config = config
         self.callback_create_seed = callback_create_seed
         self.callback_save_context = callback_save_context
@@ -21,13 +22,12 @@ class StepCreateSeed:
         
     def _handle_upload(self, e):    
         try:
-            data = yaml.safe_load(e.content)
-            self.config = data
+            self.config = yaml.safe_load(e.content)
             logger.debug(f'config: {self.config}')
-            ui.notify(f'YAML loaded: {type(data).__name__}', color='green')
+            ui.notify(f'YAML loaded: {type(self.config).__name__}', color='green')
 
             if self.callback_save_context:
-                self.callback_save_context(self.config)
+                self.callback_save_context(self.config, self.data.context_path)
                 ui.navigate.reload()
             else:
                 ui.notify('No callback function provided for saving context.', color='red')
@@ -38,12 +38,12 @@ class StepCreateSeed:
     def _create_seed_iso(self):
         
         if self.callback_save_context:
-            self.callback_save_context(self.config)
+            self.callback_save_context(self.config, self.data.context_path)
         else:
             ui.notify('No callback function provided for saving context.', color='red')
             
         if self.callback_create_seed:
-            self.callback_create_seed(self.config)
+            self.callback_create_seed(self.config, self.data.work_dir)
         else:
             ui.notify('No callback function provided for creating seed ISO.', color='red')
         
@@ -76,11 +76,11 @@ class StepCreateSeed:
                     """
                     # Placeholder for the download logic
                     if self.callback_save_context:
-                        self.callback_save_context(self.config)
+                        self.callback_save_context(self.config, self.data.context_path)
                     else:
-                        ui.notify('No callback function provided for saving context.', color='red')
+                        ui.notify('No callback function provided for saving context.', color='negative')
 
-                    path = self.data.work_dir / "context.yaml"
+                    path = self.data.context_path
                     if path.exists():
                         ui.download.file(path, path.name)
                     else:
@@ -104,14 +104,38 @@ class StepCreateSeed:
                     .classes('w-full justify-items-center')
                 
             with ui.column().classes('w-full flex-grow items-center col-span-1 sm:col-span-2'):
-                
-                # create seed iso
-                button = ui.button('Create Seed ISO', icon="construction", on_click=lambda: (
-                    ui.notify('Creating Seed ISO...'),
-                    self._create_seed_iso(),
-                    ui.notify('Seed ISO created successfully!')
-                ))
-                # spinner = ui.spinner(size='lg')
+                async def start_computation():
+                    rv = True
+                    spinner.visible = True
+                    if self.callback_save_context:
+                        # self.callback_save_context(self.config)
+                        self.callback_save_context(self.config, self.data.context_path)
+                    else:
+                        ui.notify('No callback function provided for saving context.', color='negative')
+                        rv = False
+
+                    if self.callback_create_seed:
+                        # self.callback_create_seed(self.config)
+                        result = await run.cpu_bound(self.callback_create_seed, self.config, self.data.work_dir)
+                    else:
+                        ui.notify('No callback function provided for creating seed ISO.', color='negative')
+                        rv = False
+                    
+                    if rv:
+                        ui.notify("Done", color='green')
+                    
+                    spinner.visible = False
+
+                # Create a queue to communicate with the heavy computation process
+                # queue = Manager().Queue()
+                # Update the progress bar on the main process
+                # ui.timer(0.1, callback=lambda: progressbar.set_value(queue.get() if not queue.empty() else progressbar.value))
+
+                with ui.row():
+                    # create seed iso
+                    button = ui.button('Create Seed ISO', icon="construction", on_click=start_computation)
+                    spinner = ui.spinner(size='lg')
+                    spinner.visible = False
             
                 def download_seed_iso():
                     """

@@ -1,8 +1,11 @@
 import yaml
 import os
 import crypt
+from functools import partial
 from nicegui import ui, run, events
 from loguru import logger
+
+from .utils.user_storage import UserStorage
 
 from .step_ui.step_identity import StepIdentity
 from .step_ui.step_hardware import StepHardware
@@ -58,21 +61,28 @@ def save_config(config):
         yaml.dump(config, f)
     ui.notify('Configuration saved')
 
+def save_context(update_fnc, save_fnc, context, context_path):
+    update_fnc()
+    save_fnc(context, context_path)
+
+def create_seed_iso(create_iso_fnc, context, output_dir):
+    create_iso_fnc(context, output_dir)
+
 class SeedStepperUI:
     """
     CreateSeed class to handle the creation of the seed ISO.
     """
     def __init__(self, config = None, 
                  callback_create_seed=None,
-                 call_back_save_context=None,
-                 data=None):
+                 callback_save_context=None,
+                 data:UserStorage=None):
         if config:
             self.config = config
         else:
             self.config = DEFAULT_CONFIG.copy()
             
         self.callback_create_seed = callback_create_seed
-        self.call_back_save_context = call_back_save_context
+        self.callback_save_context = callback_save_context
         
         self.data = data
         
@@ -125,17 +135,13 @@ class SeedStepperUI:
                 with ui.column().classes('w-full'):
                     
                     self._step_create_seed = StepCreateSeed(self.config,
-                                                      callback_save_context=lambda e: (
-                                                          self._update_config(),
-                                                          self.call_back_save_context(e)
-                                                      ),
-                                                     callback_create_seed=lambda e:(
-                                                        self._update_config(),
-                                                        self.call_back_save_context(e),
-                                                        self.callback_create_seed(e)
-                                                        ),
-                                                     data=self.data
-                                                     )
+                                                        callback_save_context=partial(save_context,
+                                                            self._update_config,
+                                                            self.callback_save_context),
+                                                        callback_create_seed=partial(
+                                                            self.callback_create_seed),
+                                                        data=self.data
+                                                        )
                     
                     # with ui.stepper_navigation().classes('w-full justify-end'):
                     #     ui.button('Done', on_click=lambda: ui.notify('Yay!', type='positive'))
