@@ -182,3 +182,5 @@ pyrightconfig.json
 /output
 
 test-vm
+
+.nicegui

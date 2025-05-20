@@ -1,0 +1,66 @@
+environment: dev
+
+environments:
+  - environment: dev
+    image: ubuntu-24.04.2-desktop-amd64.iso
+    autoinstall: 
+      source:
+        id: ubuntu-desktop-minimal
+    data:
+      debs: data/dev/debs
+      # ansible: data/dev/ansible
+
+  - environment: prod
+    image: ubuntu-22.04.5-live-server-amd64.iso
+    autoinstall: 
+      source:
+        id: ubuntu-server-minimal
+    data:
+      debs: data/run/debs
+
+networks:
+  - name: public
+    match:
+      macaddress: 54:BF:64:78:F3:09
+  - name: machine
+    ipv4: 192.168.1.100/24
+    match:
+      macaddress: 3C:49:37:18:4A:CA
+
+autoinstall:
+  identitiy:
+    hostname: demo.robot.mindset
+    realname: Setup
+    username: setup
+    password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512
+  storage:
+    password: setup
+    boot:
+      size: 9G
+    disk:
+      match: size.largest # size.largest, ssd
+
+    
+  packages:
+    - magic-wormhole
+    - docker-buildx
+    ## --- dev --- 
+    - git
+    - python3
+    - python3-pip
+    - python3-venv
+    - cloud-image-utils
+    - inkscape
+
+  ssh:
+    authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCZLEx6R1AXusR3+hVVcdstHy80vAdaIn0kv5xbSFy257dSmordVlPgcRl1wDIUzSY1jcFvEc+WFQwA0Wuxw/PfqoBY0pZMnG4ApVMaWgACTmfhIaUW8hecjCLlZuXRkAUeIwNbTvfjcZp9XW4i0x4XYAmPrY8/Hn9Kp9PlxdaWo5V7RyjqdMgAs1PKogoy5gQZZBjeIjriwEZGqWqeYKgKCmzyRk3ezgID+kCoTDsbeqthRKGS6m96yhFDz87PV67xmioExzt9auRDElNsxh8AF1V3O0yRPQEGIu+Bl/m2HIgJDGt+IgebQkBT4/0nRWNVzl4lYp98Vjd0nUhTsYc8r2iS7qOwOpm1oEcijbs9iZjlzr47IRfc6nEiBTa08wkY0enDMVxOF0o7T/5ctAczzdIF/uvBQF9tZdaWWSSJi2eHxIugrBzTtzaDuNMBMZV0WRr/71TKJeawfHP11EfnbZpURNN0KqJIO8Sr/bhnSTXlOVg4dXDrPLVFu2vEJeSfq3kx4QtawHpaYQSQTv3HjA9+2eYdOGbE26yyvS6b6nlQGBQaxcxt2H6X+o0bXFZIf5ZcwfelsbiAeayRHEL/cT0BSAwdBRtGv+nJZP0NDEC8wkp/uUq5FTp7Jvfz5C4+dHcgW9K5IQ2yo/pRHD17WUpEtsMt7iDd63I90/Hb+Q==
+
+  late_commands:
+    - curtin in-target --target /target bash /robot_mindset/data/install.sh || true
+
+freeipa:
+# hostname will be fetched from autoisntall configuration above
+  domain: robot.mindset
+  server: server.ipa.robot.mindset
+  password: 7HywRNA8HpZpq65hWv6xLoZ
