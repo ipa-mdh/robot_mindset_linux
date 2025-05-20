@@ -62,30 +62,53 @@ class SeedStepperUI:
     """
     CreateSeed class to handle the creation of the seed ISO.
     """
-    def __init__(self, config = None, callback_create_seed=None, data=None):
+    def __init__(self, config = None, 
+                 callback_create_seed=None,
+                 call_back_save_context=None,
+                 data=None):
         if config:
             self.config = config
         else:
             self.config = DEFAULT_CONFIG.copy()
             
         self.callback_create_seed = callback_create_seed
+        self.call_back_save_context = call_back_save_context
         
         self.data = data
+        
+        self._step_identity = None
+        self._step_hardware = None
+        self._step_connectivity = None
+        self._step_create_seed = None
             
         self._render()
+
+    def _update_config(self):
+        """Update the config with the values from the steps."""
+        if self._step_identity:
+            self._step_identity.update_config()
+            
+        if self._step_hardware:
+            self._step_hardware.update_config()
+            
+        if self._step_connectivity:
+            self._step_connectivity.update_config()
+            
+        if self._step_create_seed:
+                self._step_create_seed.update_config()
 
     def _render(self):
         with ui.stepper().props('horizontal header-nav').classes('w-full') as stepper:
             with ui.step('Identity').classes('w-full flex-grow justify-items-center') as identiy_step:
                 with ui.column().classes('w-full'):
-                    step_identity = StepIdentity(self.config)
+                    self._step_identity = StepIdentity(self.config)
                     
                     # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
                     #     ui.button('Next', on_click=stepper.next)
             with ui.step('Hardware').classes('w-full flex-grow justify-items-center') as hardware_step:
                 with ui.column().classes('w-full'):
                     
-                    step_hardware = StepHardware(self.config)
+                    self._step_hardware = StepHardware(self.config)
                     
                 # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
                 #     ui.button('Next', on_click=stepper.next)
@@ -93,7 +116,7 @@ class SeedStepperUI:
             with ui.step('Connectivity').classes('w-full flex-grow justify-items-center'):
                 with ui.column().classes('w-full'):
                     
-                    step_connectivity = StepConnectivity(self.config)
+                    self._step_connectivity = StepConnectivity(self.config)
                     
                 # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
                 #     ui.button('Next', on_click=stepper.next)
@@ -101,12 +124,14 @@ class SeedStepperUI:
             with ui.step('Create Seed').classes('w-full flex-grow justify-items-center'):
                 with ui.column().classes('w-full'):
                     
-                    step_create_seed = StepCreateSeed(self.config, 
+                    self._step_create_seed = StepCreateSeed(self.config,
+                                                      callback_save_context=lambda e: (
+                                                          self._update_config(),
+                                                          self.call_back_save_context(e)
+                                                      ),
                                                      callback_create_seed=lambda e:(
-                                                         step_identity.update_config(),
-                                                        step_hardware.update_config(),
-                                                        step_connectivity.update_config(),
-                                                        step_create_seed.update_config(),
+                                                        self._update_config(),
+                                                        self.call_back_save_context(e),
                                                         self.callback_create_seed(e)
                                                         ),
                                                      data=self.data

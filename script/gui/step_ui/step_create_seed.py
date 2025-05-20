@@ -25,12 +25,25 @@ class StepCreateSeed:
         try:
             data = yaml.safe_load(e.content)
             self.config = data
-            ui.notify(f'YAML loaded: {type(data).__name__}')
-            ui.notify(f'config: {self.config}', color='green')
+            
+            ui.notify(f'YAML loaded: {type(data).__name__}', color='green')
+            logger.debug(f'config: {self.config}')
             if self.test:
                 self.test.bind_text_from(self.config, 'environment')
         except yaml.YAMLError as err:
             ui.notify(f'Error parsing YAML: {err}', color='red')
+        
+    def _create_seed_iso(self):
+        
+        if self.callback_save_context:
+            self.callback_save_context(self.config)
+        else:
+            ui.notify('No callback function provided for saving context.', color='red')
+            
+        if self.callback_create_seed:
+            self.callback_create_seed(self.config)
+        else:
+            ui.notify('No callback function provided for creating seed ISO.', color='red')
         
     def _render(self):
         with ui.grid().classes('w-full justify-items-center grid grid-cols-1 sm:grid-cols-2 gap-4'):
@@ -62,11 +75,7 @@ class StepCreateSeed:
                     # Placeholder for the download logic
                     path = self.data.work_dir / "context.yaml"
                     if path.exists():
-                        # Simulate download
-                        ui.notify(f'Downloading {path.name}...')
-                        # Simulate download time
                         ui.download.file(path, path.name)
-                        ui.notify(f'{path.name} downloaded successfully!')
                     else:
                         ui.notify('Seed Context not found!', color='negative')
                 
@@ -77,7 +86,7 @@ class StepCreateSeed:
                 #     ui.notify('Context uploaded successfully!')
                 # )).classes('w-full')
                 ui.upload(on_upload=lambda e: self._handle_upload(e),
-                          on_rejected=lambda: ui.notify('Rejected!'),
+                          on_rejected=lambda e: ui.notify(f'Rejected! {e}'),
                           auto_upload=True,
                           label='Upload YAML File',
                           max_file_size=10_000) \
@@ -95,8 +104,7 @@ class StepCreateSeed:
                 # create seed iso
                 button = ui.button('Create Seed ISO', icon="construction", on_click=lambda: (
                     ui.notify('Creating Seed ISO...'),
-                    self.callback_save_context(self.config),
-                    self.callback_create_seed(self.config),
+                    self._create_seed_iso(),
                     ui.notify('Seed ISO created successfully!')
                 ))
                 # spinner = ui.spinner(size='lg')

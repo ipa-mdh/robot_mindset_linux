@@ -39,6 +39,12 @@ def content(data: UserStorage) -> None:
 
     # Create the GUI
     css = SeedStepperUI(context,
+                        call_back_save_context=lambda e: (
+                            ui.notify('Saving Context...'),
+                            logger.debug(f"Saving context: {e}"),
+                            dump_context(e, context_path),
+                            ui.notify('Context saved successfully!')
+                        ),
                         callback_create_seed=lambda e: (
                             ui.notify('Creating Seed ISO...'),
                             logger.debug(f"Creating seed ISO with context: {e}"),
