@@ -38,7 +38,11 @@ autoinstall:
     boot:
       size: 9G
     disk:
-      match: size.largest # size.largest, ssd
+      match:
+        - key: size
+          value: largest
+        - key: ssd
+          value: 'true'
 
     
   packages:
