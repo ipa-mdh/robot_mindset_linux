@@ -17,19 +17,21 @@ class StepCreateSeed:
         self.STORAGE_DISKT_MATCH = ["size.largest", "ssd"]
         self.data = data
         
-        self.test = None
-        
         self._render()
         
     def _handle_upload(self, e):    
         try:
             data = yaml.safe_load(e.content)
             self.config = data
-            
-            ui.notify(f'YAML loaded: {type(data).__name__}', color='green')
             logger.debug(f'config: {self.config}')
-            if self.test:
-                self.test.bind_text_from(self.config, 'environment')
+            ui.notify(f'YAML loaded: {type(data).__name__}', color='green')
+
+            if self.callback_save_context:
+                self.callback_save_context(self.config)
+                ui.navigate.reload()
+            else:
+                ui.notify('No callback function provided for saving context.', color='red')
+            
         except yaml.YAMLError as err:
             ui.notify(f'Error parsing YAML: {err}', color='red')
         
@@ -66,13 +68,18 @@ class StepCreateSeed:
                 SimpleTable(rows=rows, columns=columns,
                             update_callback=update_late_commands)
                 
-            with ui.expansion('Context', icon='description', value=True)\
+            with ui.expansion('Context', icon='description', value=False)\
                     .classes('w-full justify-items-center'):
                 def download_context():
                     """
                     Download the seed context.
                     """
                     # Placeholder for the download logic
+                    if self.callback_save_context:
+                        self.callback_save_context(self.config)
+                    else:
+                        ui.notify('No callback function provided for saving context.', color='red')
+
                     path = self.data.work_dir / "context.yaml"
                     if path.exists():
                         ui.download.file(path, path.name)
@@ -95,11 +102,8 @@ class StepCreateSeed:
                 # download context
                 ui.button('Download Context', icon="file_download", on_click=lambda: download_context()) \
                     .classes('w-full justify-items-center')
-                    
-                self.test = ui.label('test').bind_text_from(self.config, 'environment') \
-                    .classes('w-full justify-items-center')
                 
-            with ui.column().classes('w-full flex-grow items-center'):
+            with ui.column().classes('w-full flex-grow items-center col-span-1 sm:col-span-2'):
                 
                 # create seed iso
                 button = ui.button('Create Seed ISO', icon="construction", on_click=lambda: (
