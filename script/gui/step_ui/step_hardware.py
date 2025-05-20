@@ -14,7 +14,6 @@ class StepHardware:
     def __init__(self, config):
         self.config = config
         self.DEFAULT_PASSWORD = 'setup'
-        self.STORAGE_DISKT_MATCH = ["size.largest", "ssd"]
         
         self._render()
         
