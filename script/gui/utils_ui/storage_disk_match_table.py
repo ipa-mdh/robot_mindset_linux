@@ -138,7 +138,7 @@ class StorageDiskMatchTable:
         """
         logger.debug(f"Deleting {e.args['id']}")
         self.rows[:] = [row for row in self.rows if str(row['id']) != e.args['id']]
-        logger.debug(f"Rows after delete: {self.rows}")
+        # logger.debug(f"Rows after delete: {self.rows}")
         if self._update_callback:
             self._update_callback(self.rows)
         self.table.update()
