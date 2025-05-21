@@ -41,9 +41,10 @@ class StorageDiskMatchTable:
         for item in rows:
             if not isinstance(item, dict):
                 logger.warning("Rows must be a list of dictionaries.")
-            row = item.copy()
-            row['id'] = uuid4()
-            self.rows.append(row)
+            else:
+                row = item.copy()
+                row['id'] = uuid4()
+                self.rows.append(row)
 
     def _setup_slots(self):
         # Header slot

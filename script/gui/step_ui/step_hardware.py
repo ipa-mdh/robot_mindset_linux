@@ -6,6 +6,7 @@ from loguru import logger
 
 from ..utils_ui.network_table import NetworkTable, get_network_table_rows, get_networks
 from ..utils_ui.storage_disk_match_table import StorageDiskMatchTable
+from ..info_ui.ubuntu_autoinstall import help_dialog_storage
 
 class StepHardware:
     """
@@ -36,7 +37,12 @@ class StepHardware:
                                 buffer.append(d)
                             self.config['autoinstall']['storage']['disk']['match'] = buffer
 
-                        ui.label('Disk Match')
+                        with ui.row().classes('w-full').style('align-items: first baseline; gap: 0;'):
+                            ui.label('Disk Match')
+                            dialog = help_dialog_storage()
+                            ui.button(icon='help_outline', on_click=dialog.open) \
+                                .props('flat round dense size="xs"') \
+                                .classes('my-icon')
                         disk_match_list = self.config['autoinstall']['storage']['disk']['match']
                         StorageDiskMatchTable(rows = disk_match_list,
                                               update_callback=update_storage_match)

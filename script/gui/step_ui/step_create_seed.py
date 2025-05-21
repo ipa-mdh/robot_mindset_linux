@@ -134,7 +134,7 @@ class StepCreateSeed:
                 with ui.row():
                     # create seed iso
                     button = ui.button('Create Seed ISO', icon="construction", on_click=start_computation)
-                    spinner = ui.spinner(size='lg')
+                    spinner = ui.spinner(size='lg').classes('my-icon')
                     spinner.visible = False
             
                 def download_seed_iso():
