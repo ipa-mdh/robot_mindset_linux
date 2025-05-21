@@ -35,4 +35,4 @@ if __name__ in {"__main__", "__mp_main__"}:
     
     create()
     
-    ui.run(title='Robot Mindset Linux', port=8080, storage_secret='seakjshzd7u23cret')
+    ui.run(title='Robot Mindset Linux', port=8080, storage_secret='seakjshzd7u23cret', favicon='script/gui/image/robot_mindset_icon.ico')

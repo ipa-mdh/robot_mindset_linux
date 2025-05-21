@@ -94,6 +94,22 @@ def frame(navtitle: str, footer_generator=None):
                 background-color: #2a2a2a;
                 color: white;
             }
+            
+            /* Block code */
+            pre code {
+                background-color: #f0f0f0;
+                color: #000;
+                display: block;
+                padding: 1em;
+                border-radius: 6px;
+                overflow-x: auto;
+                font-family: monospace;
+            }
+            
+            body.dark pre code {
+                background-color: #2a2a2a;
+                color: white;
+            }
 
         </style>
         ''')
