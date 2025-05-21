@@ -138,8 +138,10 @@ def main(base_context: dict,
 
     copy_paths(context["data"], output_dir/"seed/data")
 
-    create_seed_iso(seed_dir=output_dir/"seed",
+    rv = create_seed_iso(seed_dir=output_dir/"seed",
                     output_dir=output_dir)
+    
+    return rv
 
 if __name__ == "__main__":
     """ Main entry point for the script. """

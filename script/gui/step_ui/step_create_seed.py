@@ -107,6 +107,7 @@ class StepCreateSeed:
                 async def start_computation():
                     rv = True
                     spinner.visible = True
+                    btn_create_seed.disable()
                     if self.callback_save_context:
                         # self.callback_save_context(self.config)
                         self.callback_save_context(self.config, self.data.context_path)
@@ -116,7 +117,7 @@ class StepCreateSeed:
 
                     if self.callback_create_seed:
                         # self.callback_create_seed(self.config)
-                        result = await run.cpu_bound(self.callback_create_seed, self.config, self.data.work_dir)
+                        rv = await self.callback_create_seed(self.config, self.data.work_dir)
                     else:
                         ui.notify('No callback function provided for creating seed ISO.', color='negative')
                         rv = False
@@ -124,6 +125,7 @@ class StepCreateSeed:
                     if rv:
                         ui.notify("Done", color='green')
                     
+                    btn_create_seed.enable()
                     spinner.visible = False
 
                 # Create a queue to communicate with the heavy computation process
@@ -133,7 +135,7 @@ class StepCreateSeed:
 
                 with ui.row():
                     # create seed iso
-                    button = ui.button('Create Seed ISO', icon="construction", on_click=start_computation)
+                    btn_create_seed = ui.button('Create Seed ISO', icon="construction", on_click=start_computation)
                     spinner = ui.spinner(size='lg').classes('my-icon')
                     spinner.visible = False
             
