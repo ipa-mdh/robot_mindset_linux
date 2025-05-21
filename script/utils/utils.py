@@ -23,7 +23,7 @@ def get_config(path:Path, default=Path("config/seed/context.yaml")) -> dict:
         use_default = True
         # raise FileNotFoundError(f"File not found: {default}")
     if not path.is_file():
-        logger.error(f"Path is not a file: {path}")
+        logger.warning(f"Path is not a file: {path}")
         use_default = True
         # raise IsADirectoryError(f"Path is not a file: {path}")
     
