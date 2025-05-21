@@ -80,9 +80,21 @@ def frame(navtitle: str, footer_generator=None):
             }
             
             body.body--dark .q-btn--flat {
-                background-color: #000;
+                background-color: #0000;
                 color: #fff;
             }
+            
+            code {
+                background-color: #f5f5f5;
+                color: black;
+                padding: 2px 4px;
+                border-radius: 4px;
+            }
+            body.dark code {
+                background-color: #2a2a2a;
+                color: white;
+            }
+
         </style>
         ''')
 

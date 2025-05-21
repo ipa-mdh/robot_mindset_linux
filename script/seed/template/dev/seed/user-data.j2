@@ -65,11 +65,9 @@ autoinstall:
     - type: disk
       id: disk0
       match:
-{%- if args.autoinstall.storage.disk.match == "size.largest" %}
-        size: largest
-{%- elif args.autoinstall.storage.disk.match == "ssd" %}
-        ssd: true
-{%- endif %}
+{%- for item in args.autoinstall.storage.disk.match %}
+        {{item.key}}: {{item.value}}
+{%- endfor %}
       ptable: gpt
       preserve: false
       wipe: superblock-recursive

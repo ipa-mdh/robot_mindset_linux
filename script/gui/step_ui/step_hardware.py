@@ -5,6 +5,8 @@ from nicegui import ui, run, events
 from loguru import logger
 
 from ..utils_ui.network_table import NetworkTable, get_network_table_rows, get_networks
+from ..utils_ui.storage_disk_match_table import StorageDiskMatchTable
+from ..info_ui.ubuntu_autoinstall import help_dialog_storage
 
 class StepHardware:
     """
@@ -13,7 +15,6 @@ class StepHardware:
     def __init__(self, config):
         self.config = config
         self.DEFAULT_PASSWORD = 'setup'
-        self.STORAGE_DISKT_MATCH = ["size.largest", "ssd"]
         
         self._render()
         
@@ -25,8 +26,26 @@ class StepHardware:
                         storage = self.config['autoinstall']['storage']
                         self.st_password = ui.input('Disk Password', value=storage.get('password', self.DEFAULT_PASSWORD), password=True, password_toggle_button=True).classes('w-full')
                         self.boot_size = ui.input('Boot Size', value=storage.get('boot', {}).get('size', '')).classes('w-full')
-                        # disk_match = ui.input('Disk Match', value=storage.get('disk', {}).get('match', ''))
-                        self.disk_match = ui.select(self.STORAGE_DISKT_MATCH, label="Disk Match", value=storage.get('disk', {}).get('match', '')).classes('w-full')
+
+                        def update_storage_match(rows):
+                            """Update the config with the late commands."""
+                            buffer = []
+                            for item in rows:
+                                if not isinstance(item, dict):
+                                    logger.warning("Rows must be a list of dictionaries.")
+                                d = {'key': item.get('key', ''), 'value': item.get('value', '')}
+                                buffer.append(d)
+                            self.config['autoinstall']['storage']['disk']['match'] = buffer
+
+                        with ui.row().classes('w-full').style('align-items: first baseline; gap: 0;'):
+                            ui.label('Disk Match')
+                            dialog = help_dialog_storage()
+                            ui.button(icon='help_outline', on_click=dialog.open) \
+                                .props('flat round dense size="xs"') \
+                                .classes('my-icon')
+                        disk_match_list = self.config['autoinstall']['storage']['disk']['match']
+                        StorageDiskMatchTable(rows = disk_match_list,
+                                              update_callback=update_storage_match)
 
             with ui.expansion('Network Configuration', icon='settings_ethernet', value=True).classes('w-full justify-items-center'):
                 # network_table.main()
@@ -57,4 +76,3 @@ class StepHardware:
         """
         self.config['autoinstall']['storage']['password'] = self.st_password.value
         self.config['autoinstall']['storage']['boot']['size'] = self.boot_size.value
-        self.config['autoinstall']['storage']['disk']['match'] = self.disk_match.value
