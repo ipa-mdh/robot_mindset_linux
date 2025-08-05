@@ -1,0 +1,12 @@
+[Unit]
+Description=Robot Mindset Linux
+After=multi-user.target
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/bin/bash -c /opt/robot-mindset-linux/run.sh
+WorkingDirectory=/opt/robot-mindset-linux
+
+[Install]
+WantedBy=multi-user.target
