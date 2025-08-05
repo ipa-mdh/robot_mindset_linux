@@ -17,6 +17,10 @@ copy_data() {
     cp -r script "$APP_ROOT/"
     cp -r data "$APP_ROOT/"
     cp run.sh "$APP_ROOT/"
+    cp cleanup.sh "$APP_ROOT/"
+
+    chmod +x "$APP_ROOT/run.sh"
+    chmod +x "$APP_ROOT/cleanup.sh"
 }
 
 setup_venv() {
