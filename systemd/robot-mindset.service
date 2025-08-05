@@ -5,7 +5,7 @@ After=multi-user.target
 [Service]
 Type=simple
 Restart=always
-ExecStart=/bin/bash -c /opt/robot-mindset-linux/run.sh
+ExecStart=/bin/bash /opt/robot-mindset-linux/run.sh
 WorkingDirectory=/opt/robot-mindset-linux
 
 [Install]

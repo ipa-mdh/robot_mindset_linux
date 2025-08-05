@@ -2,14 +2,21 @@
 
 set -x
 
-apt install -y python3-pip python3-venv
+apt install -y python3-pip python3-venv genisoimage
 
 APP_ROOT=/opt/robot-mindset-linux
 VENV="$APP_ROOT/venv"
 
+# remove_data() {
+#     rm -rf "$APP_ROOT"
+# }
+
 copy_data() {
     mkdir -p "$APP_ROOT"
-    cp -r . "$APP_ROOT"
+    cp -r config "$APP_ROOT/"
+    cp -r script "$APP_ROOT/"
+    cp -r data "$APP_ROOT/"
+    cp run.sh "$APP_ROOT/"
 }
 
 setup_venv() {
@@ -33,6 +40,8 @@ setup_systemd() {
     systemctl restart robot-mindset.service
 }
 
+echo "remove data..."
+remove_data
 
 echo "copy data..."
 copy_data

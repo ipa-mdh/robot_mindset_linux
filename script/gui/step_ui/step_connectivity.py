@@ -51,6 +51,7 @@ class StepConnectivity:
         """
         Update the configuration with the values from the UI inputs.
         """
-        self.config['freeipa']['domain'] = self.domain.value
-        self.config['freeipa']['server'] = self.server.value
-        self.config['freeipa']['password'] = self.ipa_password.value
+        pass
+        # self.config['freeipa']['domain'] = self.domain.value
+        # self.config['freeipa']['server'] = self.server.value
+        # self.config['freeipa']['password'] = self.ipa_password.value

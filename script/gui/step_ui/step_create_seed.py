@@ -144,7 +144,9 @@ class StepCreateSeed:
                     Download the seed ISO.
                     """
                     # Placeholder for the download logic
-                    path = Path('output/seed.iso')
+
+                    path = self.data.work_dir / 'seed.iso'
+                    
                     if path.exists():
                         # Simulate download
                         ui.notify(f'Downloading {path.name}...')
