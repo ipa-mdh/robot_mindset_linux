@@ -9,7 +9,7 @@
     #       groups:
     #         - docker
     #       nonsudo_allowed_sudo_commands: []
-    - role: vpn
+    # - role: vpn
 {%- if args.networks is defined %}
   {%- for item in args.networks %}
     {%- if item.ipv4 is defined %}
