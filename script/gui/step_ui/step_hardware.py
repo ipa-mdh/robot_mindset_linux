@@ -54,9 +54,14 @@ class StepHardware:
                 
                 def update_config_networks(networks):
                     """Update the config with the networks."""
-                    self.config['networks'] = networks
-                    logger.debug(self.config['networks'])
-                    
+                    # if list is > 0, update the config, else remove the key
+                    if networks:
+                        self.config['networks'] = networks
+                        logger.debug(self.config['networks'])
+                    else:
+                        self.config.pop('networks', None)
+                        logger.debug("No networks, removed 'networks' key from config")
+
                 nt = NetworkTable(network_list)
                 nt.table.on('rename', lambda e: (
                     update_config_networks(get_networks(nt.table.rows))
