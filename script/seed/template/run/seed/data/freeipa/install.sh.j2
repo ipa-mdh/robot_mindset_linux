@@ -1,0 +1,32 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+function add_hostname {
+    echo "Adding hostname to /etc/hosts"
+    # Add hostname to /etc/hosts
+    echo "172.21.12.159 robot.mindset server.ipa.robot.mindset ipa.robot.mindset server pi-hole.robot.mindset" | tee -a /etc/hosts
+}   
+
+function install_freeipa {
+    echo "Installing FreeIPA client"
+    # Install FreeIPA client
+    apt-get update
+    apt-get install -y freeipa-client
+}
+
+function configure_freeipa {
+    echo "Configuring FreeIPA client"
+    # Configure FreeIPA client
+    ipa-client-install \
+        --domain={{ args.freeipa.domain }} \
+        --server={{ args.freeipa.server }} \
+        --hostname={{ args.autoinstall.identitiy.hostname }} \
+        --mkhomedir \
+        --password={{ args.freeipa.password }} \
+        --unattended
+}
+
+add_hostname
+install_freeipa
+configure_freeipa

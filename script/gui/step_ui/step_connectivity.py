@@ -18,7 +18,7 @@ class StepConnectivity:
         self._render()
         
     def _render(self):
-        with ui.grid().classes('w-full justify-items-center grid grid-cols-1 sm:grid-cols-2 gap-4'):
+        with ui.grid().classes('w-full justify-items-center grid grid-cols-1 sm:grid-cols-1 gap-4'):
             with ui.expansion('Authorized SSH Keys', icon='vpn_key', value=True)\
                     .classes('w-full justify-items-center'):
                 # Autoinstall - SSH Keys
@@ -37,15 +37,15 @@ class StepConnectivity:
                     
                 SimpleTable(rows=rows, columns=columns,
                             update_callback=update_authorized_keys)
-            with ui.expansion('FreeIPA', icon='dns', value=True)\
-                    .classes('w-full justify-items-center'):
-                with ui.row().classes('w-full flex-grow justify-items-center'):
-                    with ui.card():
-                        # Autoinstall - FreeIPA
-                        freeipa = self.config.get('freeipa', {})
-                        self.domain = ui.input('Domain', value=freeipa.get('domain', '')).classes('w-full')
-                        self.server = ui.input('Server', value=freeipa.get('server', '')).classes('w-full')
-                        self.ipa_password = ui.input('One Time Password', value=freeipa.get('password', '')).classes('w-full')
+            # with ui.expansion('FreeIPA', icon='dns', value=True)\
+            #         .classes('w-full justify-items-center'):
+            #     with ui.row().classes('w-full flex-grow justify-items-center'):
+            #         with ui.card():
+            #             # Autoinstall - FreeIPA
+            #             freeipa = self.config.get('freeipa', {})
+            #             self.domain = ui.input('Domain', value=freeipa.get('domain', '')).classes('w-full')
+            #             self.server = ui.input('Server', value=freeipa.get('server', '')).classes('w-full')
+            #             self.ipa_password = ui.input('One Time Password', value=freeipa.get('password', '')).classes('w-full')
     
     def update_config(self):
         """

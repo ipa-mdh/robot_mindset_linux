@@ -16,9 +16,9 @@
    id="svg8"
    inkscape:version="0.92.5 (2060ec1f9f, 2020-04-08)"
    sodipodi:docname="robot_mindset_icon.svg"
-   inkscape:export-filename="robot_mindset_dev_dark.png"
-   inkscape:export-xdpi="192"
-   inkscape:export-ydpi="192"
+   inkscape:export-filename="/home/mdh/robot_mindset_linux_ws/robot_mindset_linux/script/gui/image/robot_mindset_icon.png"
+   inkscape:export-xdpi="53.330002"
+   inkscape:export-ydpi="53.330002"
    xml:space="preserve"><defs
      id="defs2" /><sodipodi:namedview
      id="base"
@@ -28,7 +28,7 @@
      inkscape:pageopacity="0.0"
      inkscape:pageshadow="2"
      inkscape:zoom="1.979899"
-     inkscape:cx="164.83757"
+     inkscape:cx="72.661151"
      inkscape:cy="28.371312"
      inkscape:document-units="mm"
      inkscape:current-layer="g201"
@@ -48,7 +48,7 @@
      fit-margin-bottom="0" /><metadata
      id="metadata5"><rdf:RDF><cc:Work
          rdf:about=""><dc:format>image/svg+xml</dc:format><dc:type
-           rdf:resource="http://purl.org/dc/dcmitype/StillImage" /><dc:title></dc:title></cc:Work></rdf:RDF></metadata><g
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" /><dc:title /></cc:Work></rdf:RDF></metadata><g
      inkscape:label="Layer 1"
      inkscape:groupmode="layer"
      id="layer1"
