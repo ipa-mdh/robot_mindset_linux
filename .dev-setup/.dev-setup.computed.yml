@@ -1,0 +1,41 @@
+# Computed configuration - Variables derived from user settings
+# This file contains variables that depend on user configuration or environment
+# In combination with the .dev-setup.yml file, it will serve as the context for the template files.
+#
+# Hint: The contents of this file will be overwritten by the variables defined in the .dev-setup.yml file.
+
+dockerfile:
+    base:
+        from: "debian:12"
+        tag: "robot_mindset_linux:base-1.0"
+        cmd: ["bash"]
+        build: true
+        build_arguments:
+            secret: id=gitcreds,src=$HOME/.git-credentials
+        registry:
+            tag: "container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:base-1.0"
+    
+    devcontainer:
+        from: "robot_mindset_linux:base-1.0"
+        tag: "robot_mindset_linux:devcontainer-1.0"
+        cmd: ["bash"]
+        build: false
+    
+    ci:
+        from: "robot_mindset_linux:base-1.0"
+        tag: "robot_mindset_linux:ci-1.0"
+        cmd: ["bash"]
+        build: true
+        build_arguments:
+            secret: id=gitcreds,src=$HOME/.git-credentials
+        registry:
+            tag: "container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0"
+    
+    run:
+        from: "robot_mindset_linux:base-1.0"
+        tag: "robot_mindset_linux:run-1.0"
+        cmd: ["bash", "-c", "robot_mindset_linux"]
+        
+        build: true
+        build_arguments:
+            secret: id=gitcreds,src=$HOME/.git-credentials

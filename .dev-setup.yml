@@ -1,0 +1,35 @@
+# User configuration - Independent variables only
+# This file contains only variables that are not computed from other variables
+# In combination with the .dev-setup/.dev-setup.computed.yml file, it will serve as the context for the template files.
+
+package_name: "robot_mindset_linux"
+environment: "debian"
+version: "1.0"
+
+# Docker registry configuration
+docker:
+    registry:
+        url: "container-registry.gitlab.cc-asp.fraunhofer.de"
+        path: "multirobot"
+
+# Development container features
+devcontainer:
+    feature:
+        packages: "ssh,curl,nano,python3-pip,git"
+        desktop_lite: False
+    vscode:
+        extensions: 
+            - "ms-python.python"
+            - "ms-vscode.cpptools-extension-pack"
+            - "ms-vscode.cmake-tools"
+            - "redhat.vscode-xml"
+            - "mhutchie.git-graph"
+            - "ms-azuretools.vscode-docker"
+            - "mtsmfm.vscode-stl-viewer"
+            - "cschlosser.doxdocgen"
+            - "samuelcolvin.jinjahtml"
+            
+
+entrypoint:
+    source: []
+    
