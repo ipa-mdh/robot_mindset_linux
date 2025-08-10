@@ -1,1 +1,0 @@
-download  [robot_mindset_data](https://owncloud.fraunhofer.de/index.php/s/TkKFP7lsSjYa1T9)
