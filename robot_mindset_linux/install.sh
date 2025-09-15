@@ -2,8 +2,6 @@
 
 set -x
 
-apt install -y python3-pip python3-venv genisoimage
-
 APP_ROOT=/opt/robot-mindset-linux
 VENV="$APP_ROOT/venv"
 
