@@ -20,10 +20,3 @@ else
 fi
 
 cd /workspace
-colcon build --symlink-install
-if [ $? -ne 0 ]; then
-    echo "Colcon build failed."
-    exit 3
-else
-    echo "Colcon build completed successfully."
-fi

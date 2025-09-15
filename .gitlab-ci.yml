@@ -39,20 +39,8 @@ install_dependencies:
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ END STAGE: DEPENDENCIES ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+
 # --------------------------------- BEGIN STAGE: BUILD ---------------------------------
-
-# .build_template: &build_definition
-#   <<: *base_definition
-#   stage: build
-#   script:
-#     - bash "$PACKAGE_PATH"/dev-setup/install.sh #todo: remove this line
-
-# build:
-#   <<: *build_definition
-#   stage: build
-#   script:
-#     - 
-
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ END STAGE: BUILD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # ---------------------------------- BEGIN STAGE: DOCS ----------------------------------

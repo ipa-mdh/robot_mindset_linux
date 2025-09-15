@@ -355,30 +355,32 @@ function install_conan_packages {
     path=$1
     conan profile detect --force
     if [ -d "$path" ]; then
-        find "$path" -type f \( -name "conanfile.txt" -o -name "conanfile.py" \) | while read -r conanfile; do
-            dir="$(dirname "$conanfile")"
-            if [[ "$conanfile" == *.txt ]]; then
-                echo "Installing dependencies from $conanfile"
-                conan install "$dir" --build missing --output-folder "$PATH_CONAN_OUTPUT_FOLDER"
+        # Find all directories containing conanfile.py or conanfile.txt
+        find "$path" -type d | while read -r dir; do
+            py_file="$dir/conanfile.py"
+            txt_file="$dir/conanfile.txt"
+            has_py=false
+            has_txt=false
+            if [ -f "$py_file" ]; then
+                has_py=true
+            fi
+            if [ -f "$txt_file" ]; then
+                has_txt=true
+            fi
+            if [ "$has_py" = true ]; then
+                # Check if it's a package recipe (contains 'class' and 'ConanFile')
+                echo "Building package from $py_file"
+                conan create "$py_file" --build=missing
                 if [ $? -ne 0 ]; then
-                    echo "ERROR: Failed to install conan dependencies from $conanfile"
+                    echo "ERROR: Failed to create conan package from $py_file"
                     rv=1
                 fi
-            elif [[ "$conanfile" == *.py ]]; then
-                # Check if it's a package recipe (contains 'class' and 'ConanFile')
-                if grep -q "class .*ConanFile" "$conanfile"; then
-                    echo "Building package from $conanfile"
-                    conan create "$dir" --build=missing
-                    if [ $? -ne 0 ]; then
-                        echo "ERROR: Failed to create conan package from $conanfile"
-                        rv=1
-                    fi
-                fi
-                
-                echo "Installing dependencies from $conanfile"
-                conan install "$dir" --build=missing --output-folder "$PATH_CONAN_OUTPUT_FOLDER"
+            fi
+            if [ "$has_txt" = true ]; then
+                echo "Installing dependencies from $txt_file"
+                conan install "$txt_file" --build missing --output-folder "$PATH_CONAN_OUTPUT_FOLDER"
                 if [ $? -ne 0 ]; then
-                    echo "ERROR: Failed to install conan dependencies from $conanfile"
+                    echo "ERROR: Failed to install conan dependencies from $txt_file"
                     rv=1
                 fi
             fi

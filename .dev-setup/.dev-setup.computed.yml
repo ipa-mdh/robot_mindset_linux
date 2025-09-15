@@ -1,41 +1,59 @@
-# Computed configuration - Variables derived from user settings
-# This file contains variables that depend on user configuration or environment
-# In combination with the .dev-setup.yml file, it will serve as the context for the template files.
-#
-# Hint: The contents of this file will be overwritten by the variables defined in the .dev-setup.yml file.
+package_name: "robot_mindset_linux"
+environment: "debian"
+version: "1.0"
+
+docker:
+    registry:
+        url: "container-registry.gitlab.cc-asp.fraunhofer.de"
+        path: "multirobot"
 
 dockerfile:
     base:
         from: "debian:12"
         tag: "robot_mindset_linux:base-1.0"
         cmd: ["bash"]
-        build: true
+        build: True
         build_arguments:
             secret: id=gitcreds,src=$HOME/.git-credentials
         registry:
             tag: "container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:base-1.0"
-    
     devcontainer:
         from: "robot_mindset_linux:base-1.0"
         tag: "robot_mindset_linux:devcontainer-1.0"
         cmd: ["bash"]
-        build: false
-    
+        build: False
     ci:
         from: "robot_mindset_linux:base-1.0"
         tag: "robot_mindset_linux:ci-1.0"
         cmd: ["bash"]
-        build: true
+        build: True
         build_arguments:
             secret: id=gitcreds,src=$HOME/.git-credentials
         registry:
             tag: "container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0"
-    
+        build_cmd: ""
     run:
         from: "robot_mindset_linux:base-1.0"
         tag: "robot_mindset_linux:run-1.0"
-        cmd: ["bash", "-c", "robot_mindset_linux"]
-        
-        build: true
+        cmd: ["bash", "-c", "echo hi"]
+        build: True
         build_arguments:
             secret: id=gitcreds,src=$HOME/.git-credentials
+
+entrypoint:
+    source: []
+
+devcontainer:
+    vscode:
+        extensions: ["ms-python.python",
+                    "ms-vscode.cpptools-extension-pack",
+                    "ms-vscode.cmake-tools",
+                    "redhat.vscode-xml",
+                    "mhutchie.git-graph",
+                    "ms-azuretools.vscode-docker",
+                    "mtsmfm.vscode-stl-viewer",
+                    "cschlosser.doxdocgen",
+                    "samuelcolvin.jinjahtml"]
+    feature:
+        packages: "ssh,curl,nano,python3-pip,git"
+        desktop_lite: "False"

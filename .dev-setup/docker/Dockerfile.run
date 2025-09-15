@@ -46,4 +46,4 @@ COPY --from=build /opt/dev-setup /opt/dev-setup
 # -----------------------------------------------------------------------------
 
 # Run the main launch file
-CMD ["bash", "-c", "robot_mindset_linux"]
+CMD ["bash", "-c", "echo hi"]

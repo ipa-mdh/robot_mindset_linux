@@ -21,8 +21,10 @@
 			"packages": "ssh,curl,nano,python3-pip,git" //,
 		},
 	},
+
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [
+	 	
 	],
 	// Use 'postCreateCommand' to run commands after the container is created.
 	//"postCreateCommand": "pip install open3d",

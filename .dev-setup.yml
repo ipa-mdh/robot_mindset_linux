@@ -28,9 +28,6 @@ devcontainer:
             - "mtsmfm.vscode-stl-viewer"
             - "cschlosser.doxdocgen"
             - "samuelcolvin.jinjahtml"
-
-dockerfile:
-    run:
                     
 
 entrypoint:

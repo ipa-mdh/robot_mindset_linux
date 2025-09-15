@@ -63,6 +63,10 @@ function handle_options {
 # Main script execution
 handle_options "$@"
 
+if [ "$VERBOSE_MODE" = true ]; then
+    set -x
+fi
+
 function check_git_installed {
     if which git &> /dev/null; then
         echo "Git is installed"
