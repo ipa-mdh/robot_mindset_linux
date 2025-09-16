@@ -21,6 +21,7 @@
 			"packages": "ssh,curl,nano,python3-pip,git" //,
 		},
 	},
+	"runArgs": ["--publish=8080:8080"]
 
 	// Use 'forwardPorts' to make a list of ports inside the container available locally.
 	"forwardPorts": [

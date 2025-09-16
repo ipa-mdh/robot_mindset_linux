@@ -29,20 +29,10 @@ RUN rm -rf ~/.git-credentials
 RUN bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
 
 # -----------------------------------------------------------------------------
-# TODO: use multi-stage builds
-#        - copy workspace install folder
-#        - copy /opt/dev-setup/venv
-#        - rosdep install + plain cmake / conan?
-#
-# FROM debian:12
-# COPY --from=build /workspace/install /workspace/install
-# COPY --from=build /opt/dev-setup /opt/dev-setup
-# COPY --from=build /opt/ros /opt/ros
-# RUN rosdep install --from-paths /workspace/install --ignore-src -r -y
-
 FROM robot_mindset_linux:base-1.0
 COPY --from=build /root/.conan2 /root/.conan2
 COPY --from=build /opt/dev-setup /opt/dev-setup
+COPY --from=build /opt/robot_mindset /opt/robot_mindset
 # -----------------------------------------------------------------------------
 
 # Run the main launch file

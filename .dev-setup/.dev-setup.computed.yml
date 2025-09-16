@@ -17,11 +17,13 @@ dockerfile:
             secret: id=gitcreds,src=$HOME/.git-credentials
         registry:
             tag: "container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:base-1.0"
+        order: 0
     devcontainer:
         from: "robot_mindset_linux:base-1.0"
         tag: "robot_mindset_linux:devcontainer-1.0"
         cmd: ["bash"]
         build: False
+        order: 1
     ci:
         from: "robot_mindset_linux:base-1.0"
         tag: "robot_mindset_linux:ci-1.0"
@@ -32,13 +34,16 @@ dockerfile:
         registry:
             tag: "container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0"
         build_cmd: ""
+        order: 1
     run:
         from: "robot_mindset_linux:base-1.0"
         tag: "robot_mindset_linux:run-1.0"
         cmd: ["bash", "-c", "echo hi"]
         build: True
+        build_keep_folders: ['/root/.conan2', '/opt/dev-setup', '/opt/robot_mindset']
         build_arguments:
             secret: id=gitcreds,src=$HOME/.git-credentials
+        order: 2
 
 entrypoint:
     source: []

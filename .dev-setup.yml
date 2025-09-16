@@ -11,6 +11,8 @@ docker:
     registry:
         url: "container-registry.gitlab.cc-asp.fraunhofer.de"
         path: "multirobot"
+    runArgs:
+       - --publish=8080:8080
 
 # Development container features
 devcontainer:
@@ -33,7 +35,10 @@ dockerfile:
     run:
         build_cmd: bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
         cmd: bash /opt/robot_mindset/linux/run.sh
+        build_keep_folders: 
+            - /root/.conan2
+            - /opt/dev-setup
+            - /opt/robot_mindset
 
 entrypoint:
     source: []
-    

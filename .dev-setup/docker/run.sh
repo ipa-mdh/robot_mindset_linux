@@ -55,13 +55,15 @@ fi
 
 function run_container_with_arguments {
     docker run -it \
-        robot_fanuc:run-1.0 \
+	    --publish=8080:8080 \
+        robot_mindset_linux:run-1.0 \
         "${CONTAINER_ARGS[@]}"
 }
 
 function run_container_without_arguments {
     docker run -it \
-        robot_fanuc:run-1.0
+	    --publish=8080:8080 \
+        robot_mindset_linux:run-1.0
 }
 
 # If CONTAINER_ARGS empty
