@@ -1,6 +1,6 @@
 #!/bin/bash
 
-PARENT="/tmp/robot_mindset_users"
+PARENT="/tmp/robot_mindset_linux_users"
 
 # 1. Remove user folders (at depth 1) older than 24 hours
 # This will also remove all their contents, so acts as a catch-all

@@ -3,7 +3,7 @@ from pathlib import Path
 from nicegui import app
 
 class UserStorage:
-    def __init__(self, base_path: Path = Path('/tmp/robot_mindset_users')):
+    def __init__(self, base_path: Path = Path('/tmp/robot_mindset_linux_users')):
         # Generate or retrieve per-user UUID
         if 'user_id' not in app.storage.user:
             app.storage.user['user_id'] = str(uuid.uuid4())

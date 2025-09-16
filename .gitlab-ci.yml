@@ -1,0 +1,138 @@
+
+variables:
+  WORKSPACE_PATH: /workspace
+  PACKAGE_PATH: $WORKSPACE_PATH/src/robot_mindset_linux
+
+stages:
+  - dependencies
+  - build
+  - test
+  - docs
+  - deploy
+
+.base_template: &base_definition
+  image: robotmindset/robot_mindset_linux:ci-1.0
+  cache:
+    - key:
+        files:
+          - workspace.lock
+      paths:
+        - /workspace
+  tags:
+    - birlinghoven
+# ------------------------------ BEGIN STAGE: DEPENDENCIES ------------------------------
+
+.install_template: &install_definition
+  <<: *base_definition
+  stage: dependencies
+  before_script:
+    - mkdir -p "$PACKAGE_PATH"
+    - cp -r . "$PACKAGE_PATH"
+    - cd "$WORKSPACE_PATH"
+
+install_dependencies:
+  <<: *install_definition
+  script:
+    - bash "$PACKAGE_PATH"/.dev-setup/setup_git_credentials.sh --use-ci-job-token
+    - bash "$PACKAGE_PATH"/.dev-setup/install.sh
+    - ls -la "$WORKSPACE_PATH"/src
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ END STAGE: DEPENDENCIES ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+# --------------------------------- BEGIN STAGE: BUILD ---------------------------------
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ END STAGE: BUILD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# ---------------------------------- BEGIN STAGE: DOCS ----------------------------------
+.docs_template: &docs_definition
+  <<: *base_definition
+  stage: docs
+
+pages:
+  <<: *docs_definition
+  script:
+  - rm -rf doxygen/documentation
+  - doxygen doxygen/Doxyfile
+  - mv doxygen/documentation/html doxygen/documentation/public
+  publish: doxygen/documentation/public
+  artifacts:
+    paths:
+    - doxygen/documentation/public
+  only:
+    - main  # Or 'master', or your default branch
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ END STAGE: DOCS ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# # ---------------------------------- BEGIN STAGE: TEST ---------------------------------
+
+# .test_template: &test_definition
+#   <<: *base_definition
+#   stage: test
+#   script:
+#     - .industrial_ci/gitlab.sh
+#   after_script:
+#     - "mkdir -p reports && cp -r --backup=numbered .base/target_ws/build/**/test_results/**/*.xml reports || true"
+#     - "mkdir -p plots && cp -r .base/target_ws/src/pitasc/pitasc_common/test/recorded_trajectories/plots/* plots || true"
+#   variables: &test_variables
+#     ADDITIONAL_DEBS: "clang subversion git-core"
+#     AFTER_INIT:
+#       'bash interfaces/pitasc_doc/scripts/install_sphinx.sh && bash pitasc_common/test/dependencies_install.sh &&
+#       git config --global url."https://gitlab-ci-token:${CI_JOB_TOKEN}@gitlab.cc-asp.fraunhofer.de/".insteadOf "https://gitlab.cc-asp.fraunhofer.de/"'
+#     DOCKER_DRIVER: overlay2
+#     ROS_REPO: "ros"
+#     UPSTREAM_WORKSPACE: "file"
+#     CCACHE_DIR: ${CI_PROJECT_DIR}/ccache
+#   cache:
+#     key: "${CI_JOB_NAME}"
+#     paths:
+#       - ccache
+
+# # -------------------------------------- TEST: ROS -------------------------------------
+
+# .ros_test_template: &ros_test_definition
+#   <<: *build_definition
+
+# humble_test:
+#   <<: *ros_test_definition
+#   stage: test
+#   script:
+#     - colcon build
+#     - source "/workspace/install/setup.bash"
+#     - colcon test
+
+# .ros_test_template: &ros_test_definition
+#   <<: *test_definition
+#   variables: &ros_test_variables
+#     <<: *test_variables
+#     BASEDIR: .base
+#   artifacts:
+#     when: always
+#     expire_in: "7 days"
+#     paths:
+#       - plots/*.png
+#     reports:
+#       junit: reports/*.xml
+
+# humble_test:
+#   <<: *ros_test_definition
+#   variables:
+#     <<: *ros_test_variables
+#     ROS_DISTRO: "humble"
+
+
+# # -------------------------------------- TEST: RL --------------------------------------
+
+# .rl_test_template: &rl_test_definition
+#   <<: *test_definition
+#   variables: &rl_test_variables
+#     <<: *test_variables
+#     CMAKE_ARGS: "-DCMAKE_BUILD_TYPE=Release"
+
+# noetic_rl_test:
+#   <<: *rl_test_definition
+#   variables:
+#     <<: *rl_test_variables
+#     ROS_DISTRO: "noetic"
+
+# # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ END STAGE: TEST ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1,0 +1,2 @@
+# cleanup procedure of robot mindset linux
+*/10 * * * * root bash /opt/robot_mindset/linux/cleanup.sh

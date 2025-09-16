@@ -1,12 +1,20 @@
 #!/bin/bash
 
-APP_ROOT=/opt/robot-mindset-linux
+APP_ROOT=/opt/robot_mindset/linux
 VENV="$APP_ROOT/venv"
 
 if [ ! -d "$VENV" ]; then
     echo "Virtual environment not found. Please run the install script first."
     exit 1
 fi
+
+# start cron if not running
+if ! pgrep -x "cron" > /dev/null; then
+    echo "Starting cron..."
+    cron
+fi
+
+cd "$APP_ROOT"
 
 source "$VENV/bin/activate"
 python3 "$APP_ROOT/script/main.py"

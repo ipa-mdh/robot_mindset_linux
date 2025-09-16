@@ -1,0 +1,44 @@
+# User configuration - Independent variables only
+# This file contains only variables that are not computed from other variables
+# In combination with the .dev-setup/.dev-setup.computed.yml file, it will serve as the context for the template files.
+
+package_name: "robot_mindset_linux"
+environment: "debian"
+version: "1.0"
+
+# Docker registry configuration
+docker:
+    registry: "robotmindset/robot_mindset_linux"
+    runArgs:
+       - --publish=8080:8080
+
+# Development container features
+devcontainer:
+    feature:
+        packages: "ssh,curl,nano,python3-pip,git"
+        desktop_lite: False
+    vscode:
+        extensions: 
+            - "ms-python.python"
+            - "ms-vscode.cpptools-extension-pack"
+            - "ms-vscode.cmake-tools"
+            - "redhat.vscode-xml"
+            - "mhutchie.git-graph"
+            - "ms-azuretools.vscode-docker"
+            - "mtsmfm.vscode-stl-viewer"
+            - "cschlosser.doxdocgen"
+            - "samuelcolvin.jinjahtml"
+
+dockerfile:
+    devcontainer:
+        build_cmd: bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
+    run:
+        build_cmd: bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
+        cmd: bash /opt/robot_mindset/linux/run.sh
+        build_keep_folders: 
+            - /root/.conan2
+            - /opt/dev-setup
+            - /opt/robot_mindset
+
+entrypoint:
+    source: []
