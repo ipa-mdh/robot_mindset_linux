@@ -1,9 +1,11 @@
 #!/bin/bash
 
-set -x
+# set -x
 
-APP_ROOT=/opt/robot-mindset-linux
+APP_ROOT=/opt/robot_mindset/linux
 VENV="$APP_ROOT/venv"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # remove_data() {
 #     rm -rf "$APP_ROOT"
@@ -11,11 +13,11 @@ VENV="$APP_ROOT/venv"
 
 copy_data() {
     mkdir -p "$APP_ROOT"
-    cp -r config "$APP_ROOT/"
-    cp -r script "$APP_ROOT/"
-    cp -r data "$APP_ROOT/"
-    cp run.sh "$APP_ROOT/"
-    cp cleanup.sh "$APP_ROOT/"
+    cp -r "$SCRIPT_DIR/config" "$APP_ROOT/"
+    cp -r "$SCRIPT_DIR/script" "$APP_ROOT/"
+    cp -r "$SCRIPT_DIR/data" "$APP_ROOT/"
+    cp "$SCRIPT_DIR/run.sh" "$APP_ROOT/"
+    cp "$SCRIPT_DIR/cleanup.sh" "$APP_ROOT/"
 
     chmod +x "$APP_ROOT/run.sh"
     chmod +x "$APP_ROOT/cleanup.sh"
@@ -32,14 +34,22 @@ setup_venv() {
         source "$VENV/bin/activate"
     fi
 
-    pip3 install -r requirements.txt
+    pip3 install -r "$SCRIPT_DIR/resource/robot_mindset_linux"
 }
 
 setup_systemd() {
-    cp systemd/robot-mindset.service /etc/systemd/system/
+    cp systemd/robot_mindset_linux.service /etc/systemd/system/
     systemctl daemon-reload
-    systemctl enable robot-mindset.service
-    systemctl restart robot-mindset.service
+    systemctl enable robot_mindset_linux.service
+    systemctl restart robot_mindset_linux.service
+}
+
+setup_cron() {
+    # copy cron file
+    cp "$SCRIPT_DIR/cron/robot_mindset_linux" /etc/cron.d/
+    chmod 644 /etc/cron.d/robot_mindset_linux
+    # Apply cron job
+    crontab /etc/cron.d/robot_mindset_linux
 }
 
 echo "remove data..."
@@ -51,8 +61,10 @@ copy_data
 echo "setup venv..."
 setup_venv
 
-echo "setup systemd..."
-setup_systemd
+# echo "setup systemd..."
+# setup_systemd
 
+echo "setup cron..."
+setup_cron
 
 echo "DONE"

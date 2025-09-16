@@ -28,7 +28,11 @@ devcontainer:
             - "mtsmfm.vscode-stl-viewer"
             - "cschlosser.doxdocgen"
             - "samuelcolvin.jinjahtml"
-                    
+
+dockerfile:
+    run:
+        build_cmd: bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
+        cmd: bash /opt/robot_mindset/linux/run.sh
 
 entrypoint:
     source: []

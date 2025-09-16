@@ -26,7 +26,7 @@ RUN ./src/robot_mindset_linux/.dev-setup/install.sh
 RUN rm -rf ~/.git-credentials
 
 # Build the workspace
-RUN 
+RUN bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
 
 # -----------------------------------------------------------------------------
 # TODO: use multi-stage builds
@@ -46,4 +46,4 @@ COPY --from=build /opt/dev-setup /opt/dev-setup
 # -----------------------------------------------------------------------------
 
 # Run the main launch file
-CMD ["bash", "-c", "echo hi"]
+CMD bash /opt/robot_mindset/linux/run.sh
