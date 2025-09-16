@@ -20,3 +20,10 @@ else
 fi
 
 cd /workspace
+bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh
+if [ $? -ne 0 ]; then
+    echo "Build command (bash /workspace/src/robot_mindset_linux/robot_mindset_linux/install.sh) failed."
+    exit 3
+else
+    echo "Build completed successfully."
+fi
