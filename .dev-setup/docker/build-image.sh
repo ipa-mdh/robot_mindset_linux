@@ -9,7 +9,7 @@ docker build --file .dev-setup/docker/Dockerfile.base \
     --secret id=gitcreds,src=$HOME/.git-credentials \
     --tag robot_mindset_linux:base-1.0 \
     .
-docker tag robot_mindset_linux:base-1.0 container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:base-1.0
+docker tag robot_mindset_linux:base-1.0 robotmindset/robot_mindset_linux:base-1.0
 
 
 # ------- ci -------
@@ -19,7 +19,7 @@ docker build --file .dev-setup/docker/Dockerfile.ci \
     --secret id=gitcreds,src=$HOME/.git-credentials \
     --tag robot_mindset_linux:ci-1.0 \
     .
-docker tag robot_mindset_linux:ci-1.0 container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0
+docker tag robot_mindset_linux:ci-1.0 robotmindset/robot_mindset_linux:ci-1.0
 
 # ------- run -------
 # Build the run image
@@ -28,3 +28,4 @@ docker build --file .dev-setup/docker/Dockerfile.run \
     --secret id=gitcreds,src=$HOME/.git-credentials \
     --tag robot_mindset_linux:run-1.0 \
     .
+docker tag robot_mindset_linux:run-1.0 robotmindset/robot_mindset_linux:run-1.0

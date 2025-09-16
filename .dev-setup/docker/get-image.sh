@@ -50,13 +50,27 @@ function try_pull_image() {
 # --- Pull / Build and tag images ---
 
 # robot_mindset_linux:run-1.0
-docker build --file .dev-setup/docker/Dockerfile.run \
-    --secret id=gitcreds,src=$HOME/.git-credentials \
-    --tag robot_mindset_linux:run-1.0 \
-    .
+if try_pull_image robot_mindset_linux:run-1.0 robotmindset/robot_mindset_linux:run-1.0; then
+    echo "Image robot_mindset_linux:run-1.0 ready."
+elif [ $? -eq 1 ]; then
+    read -p "Do you want to build robot_mindset_linux:run-1.0 locally? (y/n): " build_answer
+    if [[ "$build_answer" =~ ^[Yy]$ ]]; then
+        echo "Building robot_mindset_linux:run-1.0 locally..."
+        docker build --file .dev-setup/docker/Dockerfile.run \
+            --secret id=gitcreds,src=$HOME/.git-credentials \
+            --tag robot_mindset_linux:run-1.0 \
+            . || { echo "Docker build failed"; exit 1; }
+        docker tag robot_mindset_linux:run-1.0 robotmindset/robot_mindset_linux:run-1.0
+        echo "Successfully built and tagged robot_mindset_linux:run-1.0."
+    else
+        echo "Skipping robot_mindset_linux:run-1.0 - user declined to build locally."
+    fi
+else
+    echo "Skipping robot_mindset_linux:run-1.0 due to login failure or user declined login."
+fi
 
 # robot_mindset_linux:base-1.0
-if try_pull_image robot_mindset_linux:base-1.0 container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:base-1.0; then
+if try_pull_image robot_mindset_linux:base-1.0 robotmindset/robot_mindset_linux:base-1.0; then
     echo "Image robot_mindset_linux:base-1.0 ready."
 elif [ $? -eq 1 ]; then
     read -p "Do you want to build robot_mindset_linux:base-1.0 locally? (y/n): " build_answer
@@ -66,7 +80,7 @@ elif [ $? -eq 1 ]; then
             --secret id=gitcreds,src=$HOME/.git-credentials \
             --tag robot_mindset_linux:base-1.0 \
             . || { echo "Docker build failed"; exit 1; }
-        docker tag robot_mindset_linux:base-1.0 container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:base-1.0
+        docker tag robot_mindset_linux:base-1.0 robotmindset/robot_mindset_linux:base-1.0
         echo "Successfully built and tagged robot_mindset_linux:base-1.0."
     else
         echo "Skipping robot_mindset_linux:base-1.0 - user declined to build locally."
@@ -76,7 +90,7 @@ else
 fi
 
 # robot_mindset_linux:ci-1.0
-if try_pull_image robot_mindset_linux:ci-1.0 container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0; then
+if try_pull_image robot_mindset_linux:ci-1.0 robotmindset/robot_mindset_linux:ci-1.0; then
     echo "Image robot_mindset_linux:ci-1.0 ready."
 elif [ $? -eq 1 ]; then
     read -p "Do you want to build robot_mindset_linux:ci-1.0 locally? (y/n): " build_answer
@@ -86,7 +100,7 @@ elif [ $? -eq 1 ]; then
             --secret id=gitcreds,src=$HOME/.git-credentials \
             --tag robot_mindset_linux:ci-1.0 \
             . || { echo "Docker build failed"; exit 1; }
-        docker tag robot_mindset_linux:ci-1.0 container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0
+        docker tag robot_mindset_linux:ci-1.0 robotmindset/robot_mindset_linux:ci-1.0
         echo "Successfully built and tagged robot_mindset_linux:ci-1.0."
     else
         echo "Skipping robot_mindset_linux:ci-1.0 - user declined to build locally."

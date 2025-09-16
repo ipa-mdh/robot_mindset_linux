@@ -11,7 +11,7 @@ stages:
   - deploy
 
 .base_template: &base_definition
-  image: container-registry.gitlab.cc-asp.fraunhofer.de/multirobot/robot_mindset_linux:ci-1.0
+  image: robotmindset/robot_mindset_linux:ci-1.0
   cache:
     - key:
         files:

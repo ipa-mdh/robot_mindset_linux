@@ -8,9 +8,7 @@ version: "1.0"
 
 # Docker registry configuration
 docker:
-    registry:
-        url: "container-registry.gitlab.cc-asp.fraunhofer.de"
-        path: "multirobot"
+    registry: "robotmindset/robot_mindset_linux"
     runArgs:
        - --publish=8080:8080
 

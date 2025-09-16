@@ -52,8 +52,8 @@ setup_cron() {
     crontab /etc/cron.d/robot_mindset_linux
 }
 
-echo "remove data..."
-remove_data
+# echo "remove data..."
+# remove_data
 
 echo "copy data..."
 copy_data
