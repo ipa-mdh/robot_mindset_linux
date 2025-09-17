@@ -41,8 +41,6 @@ autoinstall:
       match:
         - key: size
           value: largest
-        - key: ssd
-          value: 'true'
 
     
   packages:
