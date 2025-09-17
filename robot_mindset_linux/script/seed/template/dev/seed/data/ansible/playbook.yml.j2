@@ -26,16 +26,18 @@
       auto_connect: true
     {%- endif %}
   {%- endfor %}
-  {%- if args.linux_kernel is defined %}
-  {%- if args.linux_kernel.realtime is defined%}
+{%- endif %}
+{%- if args.linux_kernel is defined %}
+{%- if args.linux_kernel.realtime is defined %}
+{%- if args.linux_kernel.realtime.enable %}
     - role: realtime-patch
-        vars:
-          version_major: {{ args.linux_kernel.realtime.version_major | default(6) }}
-          version_minor: {{ args.linux_kernel.realtime.version_minor | default(8) }}
-          version_patch: {{ args.linux_kernel.realtime.version_patch | default(2) }}
-          version_rt: {{ args.linux_kernel.realtime.version_rt | default(11) }}
-          working_dir: /robot_mindset/data/linux_kernel
+      vars:
+        version_major: {{ args.linux_kernel.realtime.version_major | default(6) }}
+        version_minor: {{ args.linux_kernel.realtime.version_minor | default(8) }}
+        version_patch: {{ args.linux_kernel.realtime.version_patch | default(2) }}
+        version_rt: {{ args.linux_kernel.realtime.version_rt | default(11) }}
+        working_dir: /robot_mindset/linux_kernel
   {%- endif %}
-  {%- endif %}
+{%- endif %}
 {%- endif %}
 
