@@ -28,7 +28,7 @@ function install {
     for d in */ ; do
         if [ -d "$d" ] && [ -f "$d/install.sh" ]; then
             echo "Executing $d/install.sh"
-            # (cd "$d" && bash "./install.sh")
+            (cd "$d" && bash "./install.sh")
         fi
     done
 }
