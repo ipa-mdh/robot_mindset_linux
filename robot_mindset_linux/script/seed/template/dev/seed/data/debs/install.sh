@@ -38,4 +38,5 @@ function install {
 # install_webmin
 # install_docker
 
+cd "$SCRIPT_DIR"
 install
