@@ -6,8 +6,8 @@ environments:
     autoinstall: 
       source:
         id: ubuntu-desktop-minimal
-    data:
-      debs: data/dev/debs
+    # data:
+    #   debs: data/dev/debs
       # ansible: data/dev/ansible
 
   - environment: prod
@@ -15,8 +15,8 @@ environments:
     autoinstall: 
       source:
         id: ubuntu-server-minimal
-    data:
-      debs: data/run/debs
+    # data:
+    #   debs: data/run/debs
 
 networks:
   - name: public
@@ -29,7 +29,7 @@ networks:
 
 autoinstall:
   identitiy:
-    hostname: demo.robot.mindset
+    hostname: demo
     realname: Setup
     username: setup
     password: $6$F.awLTnjnE0ZY0tW$WzojF4xYqYYAHgf0uEDJI4MfCd98VqL3EL/oVWXLrTsykOWkpO7YAV69BR4M6JZtkeT5v4KILd0SJRxpINLm50 # setup -> crypt.METHOD_SHA512
@@ -68,3 +68,11 @@ freeipa:
   domain: robot.mindset
   server: server.ipa.robot.mindset
   password: 7HywRNA8HpZpq65hWv6xLoZ
+
+linux_kernel:
+  realtime:
+    enable: false
+    version_major: 6
+    version_minor: 8
+    version_patch: 2
+    version_rt: 11

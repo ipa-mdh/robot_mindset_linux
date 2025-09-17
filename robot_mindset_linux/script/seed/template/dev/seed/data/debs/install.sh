@@ -24,7 +24,18 @@ function install_docker {
     sh /tmp/get-docker.sh
 }
 
-install_apt_dependencies
-install_local_debs
-install_webmin
-install_docker
+function install {
+    for d in */ ; do
+        if [ -d "$d" ] && [ -f "$d/install.sh" ]; then
+            echo "Executing $d/install.sh"
+            # (cd "$d" && bash "./install.sh")
+        fi
+    done
+}
+
+# install_apt_dependencies
+# # install_local_debs
+# install_webmin
+# install_docker
+
+install

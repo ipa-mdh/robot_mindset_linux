@@ -136,7 +136,7 @@ def main(base_context: dict,
     r = Render(destination=output_dir,
                context=context)
 
-    copy_paths(context["data"], output_dir/"seed/data")
+    copy_paths(context.get("data", {}), output_dir/"seed/data")
 
     rv = create_seed_iso(seed_dir=output_dir/"seed",
                     output_dir=output_dir)

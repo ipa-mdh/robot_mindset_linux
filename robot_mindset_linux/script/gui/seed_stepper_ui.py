@@ -9,7 +9,7 @@ from .utils.user_storage import UserStorage
 
 from .step_ui.step_identity import StepIdentity
 from .step_ui.step_hardware import StepHardware
-from .step_ui.step_connectivity import StepConnectivity
+from .step_ui.step_software import StepSoftware
 from .step_ui.step_create_seed import StepCreateSeed
 
 YAML_PATH = '/tmp/config.yaml'
@@ -88,7 +88,7 @@ class SeedStepperUI:
         
         self._step_identity = None
         self._step_hardware = None
-        self._step_connectivity = None
+        self._step_software_step_software = None
         self._step_create_seed = None
             
         self._render()
@@ -101,8 +101,8 @@ class SeedStepperUI:
         if self._step_hardware:
             self._step_hardware.update_config()
             
-        if self._step_connectivity:
-            self._step_connectivity.update_config()
+        if self._step_software:
+            self._step_software.update_config()
             
         if self._step_create_seed:
                 self._step_create_seed.update_config()
@@ -123,11 +123,11 @@ class SeedStepperUI:
                 # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
                 #     ui.button('Next', on_click=stepper.next)
                 #     ui.button('Back', on_click=stepper.previous).props('flat')
-            with ui.step('Connectivity').classes('w-full flex-grow justify-items-center'):
+            with ui.step('Software').classes('w-full flex-grow justify-items-center'):
                 with ui.column().classes('w-full'):
-                    
-                    self._step_connectivity = StepConnectivity(self.config)
-                    
+
+                    self._step_software = StepSoftware(self.config)
+
                 # with ui.stepper_navigation().classes('absolute bottom-4 right-4'):
                 #     ui.button('Next', on_click=stepper.next)
                 #     ui.button('Back', on_click=stepper.previous).props('flat')
