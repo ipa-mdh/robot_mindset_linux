@@ -179,7 +179,7 @@ autoinstall:
         sed -i -e "s/grub_device: UEFI/grub_device: false/" /autoinstall.yaml
       fi
   # The type of updates that will be downloaded and installed after the system installation, and before rebooting into the target system
-  updates: none
+  updates: security
   version: 1
   late-commands: 
     # --- copy data folder ---
