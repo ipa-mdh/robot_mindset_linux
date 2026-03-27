@@ -1,7 +1,11 @@
 ---
 - name: Example Playbook
   hosts: localhost
-  roles:    
+  roles:
+    - role: balena-etcher
+    - role: docker
+    - role: vscode
+    - role: webmin
     # - role: add_user
     #   users:
     #     - name: mdh
@@ -40,4 +44,3 @@
   {%- endif %}
 {%- endif %}
 {%- endif %}
-
