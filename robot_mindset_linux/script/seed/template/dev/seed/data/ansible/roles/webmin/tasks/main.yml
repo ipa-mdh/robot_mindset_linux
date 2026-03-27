@@ -4,4 +4,3 @@
   ansible.builtin.apt:
     name: "{{ webmin_packages }}"
     state: present
-    update_cache: true

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import gzip
+import os
 import shutil
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 from typing import Iterable
@@ -13,6 +15,8 @@ from loguru import logger
 
 
 MANIFEST_PATH = Path(__file__).resolve().parent / 'offline' / 'manifest.yaml'
+DEFAULT_CACHE_ROOT = Path(os.environ.get('ROBOT_MINDSET_OFFLINE_CACHE_DIR', '/tmp/robot_mindset_linux_offline_cache'))
+APT_LIST_MAX_AGE_SECONDS = 24 * 60 * 60
 UBUNTU_RELEASES = {
     '20.04': 'focal',
     '22.04': 'jammy',
@@ -59,11 +63,19 @@ def _dedupe(items: Iterable[str]) -> list[str]:
 
 def _download(url: str, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
-    logger.info(f'Downloading {url} -> {destination}')
+    if destination.exists() and destination.stat().st_size > 0:
+        logger.info('Reusing cached download {}', destination)
+        return
+    logger.info('Downloading {} -> {}', url, destination)
     try:
         urllib.request.urlretrieve(url, destination)
     except (HTTPError, URLError) as exc:
         raise RuntimeError(f'failed to download {url} -> {destination}: {exc}') from exc
+
+
+def _copy_file(source: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
 
 
 def _run(command: list[str]) -> None:
@@ -126,10 +138,36 @@ def _write_ubuntu_sources_list(destination: Path, context: dict) -> str:
     return release
 
 
+def _lists_stamp_path(state_dir: Path) -> Path:
+    return state_dir / 'lists' / '.robot_mindset_last_update'
+
+
+def _should_refresh_package_lists(state_dir: Path) -> bool:
+    stamp_path = _lists_stamp_path(state_dir)
+    if not stamp_path.exists():
+        return True
+    age_seconds = time.time() - stamp_path.stat().st_mtime
+    return age_seconds > APT_LIST_MAX_AGE_SECONDS
+
+
+def _mark_package_lists_refreshed(state_dir: Path) -> None:
+    stamp_path = _lists_stamp_path(state_dir)
+    stamp_path.parent.mkdir(parents=True, exist_ok=True)
+    stamp_path.write_text(str(int(time.time())))
+
+
+def _resolve_cache_dir(context: dict, cache_dir: Path | None) -> Path:
+    if cache_dir is not None:
+        return Path(cache_dir)
+    release = _target_ubuntu_release(context)
+    image_name = str(context.get('image', 'ubuntu')).replace('.iso', '')
+    return DEFAULT_CACHE_ROOT / release / image_name
+
+
 def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path | None = None) -> Path:
     manifest = _load_manifest()
     seed_data_dir = Path(seed_data_dir)
-    cache_dir = Path(cache_dir or seed_data_dir.parent.parent / 'offline-cache')
+    cache_dir = _resolve_cache_dir(context, cache_dir)
 
     offline_root = seed_data_dir / 'offline'
     repo_dir = offline_root / 'repo'
@@ -139,18 +177,19 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
     archive_dir = cache_dir / 'archives'
     apt_state_dir = cache_dir / 'apt-state'
     sources_list = cache_dir / 'sources.list'
+    realtime_cache_dir = cache_dir / 'realtime'
 
     shutil.rmtree(repo_dir, ignore_errors=True)
     shutil.rmtree(realtime_dir, ignore_errors=True)
-    shutil.rmtree(apt_state_dir, ignore_errors=True)
     pool_dir.mkdir(parents=True, exist_ok=True)
     realtime_dir.mkdir(parents=True, exist_ok=True)
     direct_dir.mkdir(parents=True, exist_ok=True)
     archive_dir.mkdir(parents=True, exist_ok=True)
+    realtime_cache_dir.mkdir(parents=True, exist_ok=True)
     (apt_state_dir / 'lists' / 'partial').mkdir(parents=True, exist_ok=True)
 
     release = _write_ubuntu_sources_list(sources_list, context)
-    logger.info('Preparing offline bundle for Ubuntu release {}', release)
+    logger.info('Preparing offline bundle for Ubuntu release {} using cache {}', release, cache_dir)
 
     packages = []
     packages.extend(manifest.get('apt_packages', {}).get('bootstrap', []))
@@ -163,7 +202,7 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
         destination = direct_dir / item['filename']
         _download(item['url'], destination)
         direct_debs.append(destination)
-        shutil.copy2(destination, pool_dir / destination.name)
+        _copy_file(destination, pool_dir / destination.name)
 
     linux_kernel = context.get('linux_kernel', {})
     realtime = linux_kernel.get('realtime', {}) if isinstance(linux_kernel, dict) else {}
@@ -176,8 +215,12 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
         version_with_rt = f'{version}-rt{version_rt}'
         kernel_url = f'https://cdn.kernel.org/pub/linux/kernel/v{version_major}.x/linux-{version}.tar.xz'
         patch_url = f'https://cdn.kernel.org/pub/linux/kernel/projects/rt/{version_major}.{version_minor}/patch-{version_with_rt}.patch.xz'
-        _download(kernel_url, realtime_dir / f'linux-{version}.tar.xz')
-        _download(patch_url, realtime_dir / f'patch-{version_with_rt}.patch.xz')
+        kernel_cache_path = realtime_cache_dir / f'linux-{version}.tar.xz'
+        patch_cache_path = realtime_cache_dir / f'patch-{version_with_rt}.patch.xz'
+        _download(kernel_url, kernel_cache_path)
+        _download(patch_url, patch_cache_path)
+        _copy_file(kernel_cache_path, realtime_dir / kernel_cache_path.name)
+        _copy_file(patch_cache_path, realtime_dir / patch_cache_path.name)
 
     if packages or direct_debs:
         apt_base_args = _apt_base_args(apt_state_dir, archive_dir, sources_list)
@@ -190,12 +233,16 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
             *packages,
             *[str(item) for item in direct_debs],
         ]
-        _run(['apt-get', *apt_base_args, 'update'])
+        if _should_refresh_package_lists(apt_state_dir):
+            _run(['apt-get', *apt_base_args, 'update'])
+            _mark_package_lists_refreshed(apt_state_dir)
+        else:
+            logger.info('Reusing cached Ubuntu package lists from {}', apt_state_dir)
         _run(command)
 
     for deb in archive_dir.glob('*.deb'):
-        shutil.copy2(deb, pool_dir / deb.name)
+        _copy_file(deb, pool_dir / deb.name)
 
     _build_repo(repo_dir)
-    logger.info('Offline bundle prepared at {}', offline_root)
+    logger.info('Offline bundle prepared at {} using cache {}', offline_root, cache_dir)
     return offline_root
