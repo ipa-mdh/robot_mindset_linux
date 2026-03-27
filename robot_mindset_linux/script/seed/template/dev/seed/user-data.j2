@@ -177,7 +177,7 @@ autoinstall:
   late-commands: 
     # --- copy data folder ---
     - mkdir -p /mnt/seed
-    - mount -L CIDATA /mnt/seed
+    - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
     # Copy the data folder to the target system
     - mkdir -p /target/robot_mindset
     - cp -r /mnt/seed/data /target/robot_mindset
