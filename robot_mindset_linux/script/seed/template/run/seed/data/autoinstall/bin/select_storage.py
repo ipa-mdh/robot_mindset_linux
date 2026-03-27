@@ -8,8 +8,8 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-MARKER_START = "# robot_mindset_storage_begin"
-MARKER_END = "# robot_mindset_storage_end"
+import yaml
+
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
 ALIGNMENT_BYTES = 1048576  # 1 MiB alignment for new partitions
 
@@ -121,7 +121,7 @@ def collect_lsblk():
         "-b",
         "-J",
         "-o",
-        "NAME,TYPE,ROTA,SIZE,FSTYPE,MOUNTPOINTS"
+        "NAME,TYPE,ROTA,SIZE,FSTYPE,MOUNTPOINTS",
     ])
     data = json.loads(output)
     log(f"lsblk returned {len(data.get('blockdevices', []))} blockdevices")
@@ -135,6 +135,34 @@ def parse_partition_number(name: str):
     if match:
         return int(match.group(1))
     return None
+
+
+def parse_parted_output(output, device_path):
+    """Parse machine-readable parted output into table type and free regions."""
+    lines = [line.strip().rstrip(";") for line in output.splitlines() if line.strip()]
+    free_regions = []
+    table_type = None
+    for line in lines:
+        if line == "BYT":
+            continue
+        if line.startswith(device_path):
+            parts = line.split(":")
+            if len(parts) >= 6:
+                table_type = parts[5]
+            continue
+        parts = line.split(":")
+        if len(parts) < 4:
+            continue
+        try:
+            start = int(parts[1][:-1])
+            end = int(parts[2][:-1])
+            size = int(parts[3][:-1])
+        except ValueError:
+            continue
+        is_free_row = parts[0] == "free" or (len(parts) > 4 and parts[4] == "free")
+        if is_free_row:
+            free_regions.append({"start": start, "end": end, "size": size})
+    return table_type or "unknown", free_regions
 
 
 def parse_parted(device_path, disk_size):
@@ -153,7 +181,6 @@ def parse_parted(device_path, disk_size):
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr or ""
         log(f"parted stderr for {device_path}: {stderr.strip() or '<empty>'}")
-        # Blank disks often have no partition table yet. Treat them as fully free.
         stderr_lower = stderr.lower()
         if "unrecognised disk label" in stderr_lower or "unrecognized disk label" in stderr_lower:
             log(f"{device_path}: no partition table, treating entire disk as free")
@@ -164,36 +191,12 @@ def parse_parted(device_path, disk_size):
         log(f"parted stderr for {device_path}: {stderr.strip()}")
     log(f"parted raw for {device_path}: {output.strip() or '<empty>'}")
 
-    lines = [line.strip().rstrip(";") for line in output.splitlines() if line.strip()]
-    free_regions = []
-    table_type = None
-    for line in lines:
-        if line == "BYT":
-            continue
-        if line.startswith(device_path):
-            parts = line.split(":")
-            if len(parts) >= 6:
-                table_type = parts[5]
-            continue
-        parts = line.split(":")
-        if len(parts) < 4:
-            continue
-        number = parts[0]
-        try:
-            start = int(parts[1][:-1])
-            end = int(parts[2][:-1])
-            size = int(parts[3][:-1])
-        except ValueError:
-            continue
-        if number == "free":
-            free_regions.append({"start": start, "end": end, "size": size})
-
-    # Some blank disks report table_type unknown but do not emit explicit free rows.
-    if not free_regions and (table_type in {None, "unknown"}):
+    table_type, free_regions = parse_parted_output(output, device_path)
+    if not free_regions and table_type in {None, "unknown"}:
         log(f"{device_path}: unknown partition table with no free rows, treating entire disk as free")
         return "gpt", [{"start": 0, "end": disk_size, "size": disk_size}], output
 
-    return table_type or "unknown", free_regions, output
+    return table_type, free_regions, output
 
 
 def gather_disks():
@@ -251,15 +254,17 @@ def gather_disks():
     return disks
 
 
+def selection_sort_key(disk, prefer_ssd=True):
+    """Prefer SSDs, then larger disks, then larger free extents."""
+    return (
+        1 if (prefer_ssd and disk.get("is_ssd")) else 0,
+        disk.get("size", 0),
+        disk.get("largest_free", {}).get("size", 0),
+    )
+
+
 def select_disk(disks, min_free_bytes, prefer_ssd=True):
     """Choose a disk and free region based on the requirements."""
-    def sort_key(disk):
-        return (
-            1 if (prefer_ssd and disk.get("is_ssd")) else 0,
-            disk.get("largest_free", {}).get("size", 0),
-            disk.get("size", 0),
-        )
-
     populated = []
     empty = []
     for disk in disks:
@@ -267,14 +272,14 @@ def select_disk(disks, min_free_bytes, prefer_ssd=True):
         if not region:
             log(f"Skipping {disk['path']}: no free region detected")
             continue
-        if region.get("size", 0) < min_free_bytes:
-            log(
-                f"Skipping {disk['path']}: largest free region {region['size']}B "
-                f"({bytes_to_gib(region['size'])} GiB) is below threshold "
-                f"{min_free_bytes}B ({bytes_to_gib(min_free_bytes)} GiB)"
-            )
-            continue
         if disk.get("partitions"):
+            if region.get("size", 0) < min_free_bytes:
+                log(
+                    f"Skipping {disk['path']}: largest free region {region['size']}B "
+                    f"({bytes_to_gib(region['size'])} GiB) is below threshold "
+                    f"{min_free_bytes}B ({bytes_to_gib(min_free_bytes)} GiB)"
+                )
+                continue
             log(f"Candidate {disk['path']} classified as free-space install target")
             populated.append(disk)
         else:
@@ -282,14 +287,14 @@ def select_disk(disks, min_free_bytes, prefer_ssd=True):
             empty.append(disk)
 
     if populated:
-        populated.sort(key=sort_key, reverse=True)
+        populated.sort(key=lambda disk: selection_sort_key(disk, prefer_ssd=prefer_ssd), reverse=True)
         selection = populated[0]
         selection["scenario"] = "free-space"
         log(f"Selected populated disk {selection['path']} with region {summarize_region(selection['largest_free'])}")
         return selection
 
     if empty:
-        empty.sort(key=sort_key, reverse=True)
+        empty.sort(key=lambda disk: selection_sort_key(disk, prefer_ssd=prefer_ssd), reverse=True)
         selection = empty[0]
         selection["scenario"] = "whole-disk"
         log(f"Selected empty disk {selection['path']} with region {summarize_region(selection['largest_free'])}")
@@ -348,11 +353,13 @@ def build_plan(disk, config):
         f"({bytes_to_gib(max(available, 0))} GiB), fixed_partitions={required_for_fixed_parts}B"
     )
 
+    if available <= required_for_fixed_parts:
+        fail(
+            "Selected disk/free space is too small for the required fixed partitions. "
+            f"Need more than {required_for_fixed_parts} bytes."
+        )
+
     if scenario == "free-space":
-        if available <= 0:
-            fail("Free region has no usable capacity after alignment")
-        if available <= required_for_fixed_parts:
-            fail("Free space is too small for the required partitions (need more than fixed overhead)")
         root_size = available - required_for_fixed_parts
     else:
         root_size = -1
@@ -436,7 +443,6 @@ def build_plan(disk, config):
     plan["root_partition_size"] = root_size
     plan["requires_offsets"] = scenario == "free-space"
     plan["disk_preserve"] = scenario == "free-space"
-    plan["bios_partition_present"] = bios_size > 0
     plan["dm_id"] = f"{disk_id}-cryptmap"
     plan["root_fmt_id"] = f"{disk_id}-root-fmt"
 
@@ -444,123 +450,121 @@ def build_plan(disk, config):
     return plan
 
 
-def render_storage_lines(plan, config):
-    """Render YAML lines for the storage config."""
-    lines = []
-
-    def add(indent, text):
-        lines.append(" " * indent + text)
-
+def build_storage_config(plan, config):
+    """Build the curtin storage config structure."""
     disk_preserve = plan.get("disk_preserve", False)
     disk_id = plan["disk_id"]
-    add(4, "version: 1")
-    add(4, "config:")
-    add(4, "- type: disk")
-    add(6, f"id: {disk_id}")
-    add(6, f"ptable: {plan['ptable']}")
-    add(6, f"path: {plan['disk_path']}")
-    add(6, f"preserve: {'true' if disk_preserve else 'false'}")
+    storage = {
+        "version": 1,
+        "config": [
+            {
+                "type": "disk",
+                "id": disk_id,
+                "ptable": plan["ptable"],
+                "path": plan["disk_path"],
+                "preserve": disk_preserve,
+                "grub_device": True,
+            }
+        ],
+    }
     if not disk_preserve:
-        add(6, "wipe: superblock-recursive")
-    add(6, "grub_device: true")
+        storage["config"][0]["wipe"] = "superblock-recursive"
 
     for part in plan["partitions"]:
-        add(4, "- type: partition")
-        add(6, f"id: {part['id']}")
-        add(6, f"device: {disk_id}")
-        if part.get("number") is not None:
-            add(6, f"number: {part['number']}")
-        add(6, f"size: {part['size']}")
-        add(6, f"wipe: {part['wipe']}")
-        add(6, f"grub_device: {str(part['grub_device']).lower() if isinstance(part['grub_device'], bool) else part['grub_device']}")
-        add(6, f"preserve: {'true' if part['preserve'] else 'false'}")
+        partition_entry = {
+            "type": "partition",
+            "id": part["id"],
+            "device": disk_id,
+            "number": part["number"],
+            "size": part["size"],
+            "wipe": part["wipe"],
+            "grub_device": part["grub_device"],
+            "preserve": part["preserve"],
+        }
         if part.get("flag"):
-            add(6, f"flag: {part['flag']}")
+            partition_entry["flag"] = part["flag"]
         if plan["requires_offsets"] and part.get("offset") is not None:
-            add(6, f"offset: {part['offset']}")
+            partition_entry["offset"] = part["offset"]
+        storage["config"].append(partition_entry)
 
-        if part['id'].endswith("-efi"):
-            add(4, "- type: format")
-            add(6, f"id: {part['id']}-format")
-            add(6, f"volume: {part['id']}")
-            add(6, "fstype: fat32")
-            add(6, f"label: {config['efi_label']}")
-            add(4, "- type: mount")
-            add(6, f"id: {part['id']}-mount")
-            add(6, f"device: {part['id']}-format")
-            add(6, "path: /boot/efi")
-        elif part['id'].endswith("-boot"):
-            add(4, "- type: format")
-            add(6, f"id: {part['id']}-format")
-            add(6, f"volume: {part['id']}")
-            add(6, "fstype: ext4")
-            add(6, f"label: {config['boot_label']}")
-            add(4, "- type: mount")
-            add(6, f"id: {part['id']}-mount")
-            add(6, f"device: {part['id']}-format")
-            add(6, "path: /boot")
-        elif part['id'].endswith("-crypt"):
-            add(4, "- type: dm_crypt")
-            add(6, f"id: {plan['dm_id']}")
-            add(6, f"volume: {part['id']}")
-            add(6, "dm_name: crypt-root")
-            add(6, f"key: {config['encryption_key']}")
-            add(4, "- type: format")
-            add(6, f"id: {plan['root_fmt_id']}")
-            add(6, f"volume: {plan['dm_id']}")
-            add(6, f"fstype: {config['filesystem']}")
-            add(6, f"label: {config['root_label']}")
-            add(4, "- type: mount")
-            add(6, "id: root-mount")
-            add(6, f"device: {plan['root_fmt_id']}")
-            add(6, "path: /")
-    log(f"Rendered {len(lines)} storage yaml lines")
-    return lines
+        if part["id"].endswith("-efi"):
+            storage["config"].extend([
+                {
+                    "type": "format",
+                    "id": f"{part['id']}-format",
+                    "volume": part["id"],
+                    "fstype": "fat32",
+                    "label": config["efi_label"],
+                },
+                {
+                    "type": "mount",
+                    "id": f"{part['id']}-mount",
+                    "device": f"{part['id']}-format",
+                    "path": "/boot/efi",
+                },
+            ])
+        elif part["id"].endswith("-boot"):
+            storage["config"].extend([
+                {
+                    "type": "format",
+                    "id": f"{part['id']}-format",
+                    "volume": part["id"],
+                    "fstype": "ext4",
+                    "label": config["boot_label"],
+                },
+                {
+                    "type": "mount",
+                    "id": f"{part['id']}-mount",
+                    "device": f"{part['id']}-format",
+                    "path": "/boot",
+                },
+            ])
+        elif part["id"].endswith("-crypt"):
+            storage["config"].extend([
+                {
+                    "type": "dm_crypt",
+                    "id": plan["dm_id"],
+                    "volume": part["id"],
+                    "dm_name": "crypt-root",
+                    "key": config["encryption_key"],
+                },
+                {
+                    "type": "format",
+                    "id": plan["root_fmt_id"],
+                    "volume": plan["dm_id"],
+                    "fstype": config["filesystem"],
+                    "label": config["root_label"],
+                },
+                {
+                    "type": "mount",
+                    "id": "root-mount",
+                    "device": plan["root_fmt_id"],
+                    "path": "/",
+                },
+            ])
+    log(f"Rendered {len(storage['config'])} storage config entries")
+    return storage
 
 
-def update_autoinstall(autoinstall_path, new_lines):
-    """Replace the managed storage block in /autoinstall.yaml."""
+def update_autoinstall(autoinstall_path, storage_config):
+    """Replace the storage block in /autoinstall.yaml using YAML-aware editing."""
     path = Path(autoinstall_path)
     if not path.exists():
         fail(f"Cannot find autoinstall config at {autoinstall_path}")
-    lines = path.read_text(encoding="utf-8").splitlines()
 
-    start_idx = end_idx = None
-    replacement_mode = None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        fail(f"Could not parse {autoinstall_path} as YAML: {exc}")
 
-    marker_start_idx = next((i for i, line in enumerate(lines) if MARKER_START in line), None)
-    marker_end_idx = next((i for i, line in enumerate(lines) if MARKER_END in line), None)
-    if marker_start_idx is not None and marker_end_idx is not None:
-        if marker_end_idx <= marker_start_idx:
-            fail("Storage marker ordering invalid in autoinstall template")
-        start_idx = marker_start_idx + 1
-        end_idx = marker_end_idx
-        replacement_mode = "marker-comments"
-    else:
-        storage_idx = next((i for i, line in enumerate(lines) if line.strip() == "storage:"), None)
-        if storage_idx is None:
-            preview = "\n".join(lines[:80])
-            fail(
-                "Could not locate storage section in /autoinstall.yaml. "
-                f"First 80 lines follow:\n{preview}"
-            )
+    if not isinstance(data, dict):
+        fail(f"Unexpected top-level YAML type in {autoinstall_path}: {type(data).__name__}")
 
-        next_top_level_idx = None
-        for i in range(storage_idx + 1, len(lines)):
-            line = lines[i]
-            if not line.strip():
-                continue
-            if line == line.lstrip() and line.strip().endswith(":"):
-                next_top_level_idx = i
-                break
+    target = data.get("autoinstall") if isinstance(data.get("autoinstall"), dict) else data
+    target["storage"] = storage_config
 
-        start_idx = storage_idx + 1
-        end_idx = next_top_level_idx if next_top_level_idx is not None else len(lines)
-        replacement_mode = "section-fallback"
-
-    updated = lines[:start_idx] + new_lines + lines[end_idx:]
-    path.write_text("\n".join(updated) + "\n", encoding="utf-8")
-    log(f"Updated autoinstall file at {autoinstall_path} using {replacement_mode}")
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
+    log(f"Updated autoinstall file at {autoinstall_path} using yaml-rewrite")
 
 
 def write_debug(plan, disks):
@@ -597,11 +601,11 @@ def main():
 
     selection = select_disk(disks, config["min_free_bytes"], prefer_ssd=config["prefer_ssd"])
     if not selection:
-        fail("No suitable disk or free space was found. At least 40GiB of unformatted space is required.")
+        fail("No suitable disk or free space was found. At least 40GiB of unformatted space is required on an existing disk or an empty target disk must be available.")
 
     plan = build_plan(selection, config)
-    new_lines = render_storage_lines(plan, config)
-    update_autoinstall(args.autoinstall, new_lines)
+    storage_config = build_storage_config(plan, config)
+    update_autoinstall(args.autoinstall, storage_config)
     write_debug(plan, disks)
     log(f"Selected {selection['path']} using scenario {plan['scenario']}")
 
