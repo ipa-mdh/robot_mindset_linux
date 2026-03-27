@@ -17,16 +17,17 @@ class StepHardware:
         with ui.grid().classes('w-full justify-items-center grid grid-cols-1 sm:grid-cols-2 gap-4'):
             with ui.expansion('Storage Configuration', icon='storage', value=True).classes('w-full justify-items-center'):
                 with ui.row().classes('w-full justify-items-center'):
-                    with ui.card():
+                    with ui.column().classes('w-full'):
+                        with ui.card():
+                            storage = self.config['autoinstall']['storage']
+                            self.st_password = ui.input('Disk Password', value=storage.get('password', self.DEFAULT_PASSWORD), password=True, password_toggle_button=True).classes('w-full')
+                            self.boot_size = ui.input('Boot Size', value=storage.get('boot', {}).get('size', '')).classes('w-full')
                         ui.markdown(
-                            '**Automatic disk selection:** the installer now scans all disks at boot, uses the'
-                            ' largest free unformatted space (>= 40 GB) or the biggest empty disk, and never'
-                            ' overwrites existing partitions. Use the controls below to adjust only the'
-                            ' encryption password and boot partition size.'
-                        ).classes('text-sm text-left pb-2')
-                        storage = self.config['autoinstall']['storage']
-                        self.st_password = ui.input('Disk Password', value=storage.get('password', self.DEFAULT_PASSWORD), password=True, password_toggle_button=True).classes('w-full')
-                        self.boot_size = ui.input('Boot Size', value=storage.get('boot', {}).get('size', '')).classes('w-full')
+                                '**Automatic disk selection:** the installer scans all disks at boot, uses the'
+                                ' largest free unformatted space (>= 40 GB) or the biggest empty disk, and never'
+                                ' overwrites existing partitions. Use the controls to adjust only the'
+                                ' encryption password and boot partition size.'
+                            ).classes('text-sm text-left pb-2')
 
             with ui.expansion('Network Configuration', icon='settings_ethernet', value=True).classes('w-full justify-items-center'):
                 # network_table.main()
