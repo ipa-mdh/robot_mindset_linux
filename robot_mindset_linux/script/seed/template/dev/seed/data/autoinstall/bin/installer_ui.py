@@ -410,7 +410,7 @@ class InstallerUIState:
         self.selection_path = Path(selection_path)
         self.selection_path.parent.mkdir(parents=True, exist_ok=True)
         self.config = select_storage.load_config()
-        self.disks = select_storage.gather_disks()
+        self.disks = select_storage.gather_disks(self.config['min_free_bytes'])
         self.candidates = select_storage.collect_candidates(
             self.disks,
             self.config['min_free_bytes'],
