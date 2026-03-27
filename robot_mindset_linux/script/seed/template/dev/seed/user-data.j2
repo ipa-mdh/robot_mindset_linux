@@ -1,10 +1,12 @@
 #cloud-config
+datasource_list: [ NoCloud, None ]
 # See the autoinstall documentation at:
 # https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
 autoinstall:
   apt:
     disable_components: []
     fallback: offline-install
+    geoip: false
   codecs:
     install: false
   drivers:
@@ -14,6 +16,8 @@ autoinstall:
     password: {{ args.autoinstall.identitiy.password }}
     realname: {{ args.autoinstall.identitiy.realname }}
     username: {{ args.autoinstall.identitiy.username }}
+  refresh-installer:
+    update: false
   kernel:
     package: linux-generic
   keyboard:
@@ -28,10 +32,28 @@ autoinstall:
     ethernets:
     {%- for item in args.networks %}
       {{ item.name }}:
-        dhcp4: true
         match:
           macaddress: {{ item.match.macaddress }}
         set-name: {{ item.name }}
+    {%- if item.ipv4 is defined %}
+        dhcp4: false
+        addresses:
+          - {{ item.ipv4 }}
+    {%- if item.gateway4 is defined %}
+        routes:
+          - to: default
+            via: {{ item.gateway4 }}
+    {%- endif %}
+    {%- if item.nameservers is defined %}
+        nameservers:
+          addresses:
+      {%- for nameserver in item.nameservers %}
+            - {{ nameserver }}
+      {%- endfor %}
+    {%- endif %}
+    {%- else %}
+        dhcp4: true
+    {%- endif %}
     {%- endfor %}
   {%- endif %}
   # network:

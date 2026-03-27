@@ -175,9 +175,13 @@ def parse_parted(device_path, disk_size):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            timeout=8,
         )
         output = result.stdout
         stderr = result.stderr or ""
+    except subprocess.TimeoutExpired:
+        log(f"parted timed out for {device_path}; skipping this disk scan")
+        return "unknown", [], ""
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr or ""
         log(f"parted stderr for {device_path}: {stderr.strip() or '<empty>'}")
@@ -199,7 +203,7 @@ def parse_parted(device_path, disk_size):
     return table_type, free_regions, output
 
 
-def gather_disks():
+def gather_disks(min_free_bytes):
     """Collect relevant metadata for each concrete disk device."""
     disks = []
     for entry in collect_lsblk():
@@ -212,7 +216,6 @@ def gather_disks():
         if size <= 0:
             continue
         device_path = f"/dev/{name}"
-        table_type, free_regions, parted_output = parse_parted(device_path, size)
         partitions = []
         children = entry.get("children") or []
         for child in children:
@@ -225,6 +228,20 @@ def gather_disks():
                 "size": int(child.get("size") or 0),
                 "fstype": child.get("fstype"),
             })
+
+        total_partition_bytes = sum(partition["size"] for partition in partitions)
+        if not partitions:
+            table_type, free_regions, parted_output = "gpt", [{"start": 0, "end": size, "size": size}], ""
+            log(f"{device_path}: no partitions reported by lsblk, skipping parted and treating whole disk as free")
+        elif max(size - total_partition_bytes, 0) < min_free_bytes:
+            table_type, free_regions, parted_output = "unknown", [], ""
+            log(
+                f"{device_path}: skipping parted because total unallocated capacity "
+                f"{max(size - total_partition_bytes, 0)}B is below threshold {min_free_bytes}B"
+            )
+        else:
+            table_type, free_regions, parted_output = parse_parted(device_path, size)
+
         largest_free = max(free_regions, key=lambda region: region["size"]) if free_regions else None
         disk = {
             "name": name,
@@ -595,7 +612,7 @@ def main():
     args = parser.parse_args()
 
     config = load_config()
-    disks = gather_disks()
+    disks = gather_disks(config["min_free_bytes"])
     if not disks:
         fail("No disk devices detected by lsblk")
 

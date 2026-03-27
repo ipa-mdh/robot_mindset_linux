@@ -4,7 +4,6 @@
   ansible.builtin.apt:
     name: "{{ docker_packages }}"
     state: present
-    update_cache: true
 
 - name: Ensure Docker service is enabled and started
   become: true
