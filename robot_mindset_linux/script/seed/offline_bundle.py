@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import gzip
+import hashlib
+import json
 import os
 import shutil
+import tarfile
 import subprocess
 import time
 import urllib.request
@@ -110,9 +113,43 @@ def _build_repo(repo_dir: Path) -> None:
     _write_release(repo_dir)
 
 
+def _archive_repo(repo_dir: Path, archive_path: Path) -> None:
+    archive_path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(archive_path, 'w') as tar:
+        for entry in sorted(repo_dir.rglob('*')):
+            tar.add(entry, arcname=entry.relative_to(repo_dir), recursive=False)
+
+
+def _files_fingerprint(paths: Iterable[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda item: str(item)):
+        stat_result = path.stat()
+        digest.update(str(path.name).encode('utf-8'))
+        digest.update(str(stat_result.st_size).encode('utf-8'))
+        digest.update(str(stat_result.st_mtime_ns).encode('utf-8'))
+    return digest.hexdigest()
+
+
+def _bundle_signature(manifest: dict, context: dict, packages: list[str], direct_debs: list[Path], archive_dir: Path, realtime_files: list[Path]) -> str:
+    payload = {
+        'image': context.get('image'),
+        'ubuntu_release': _target_ubuntu_release(context),
+        'packages': packages,
+        'manifest': manifest,
+        'direct_debs': _files_fingerprint(direct_debs),
+        'archive_debs': _files_fingerprint(archive_dir.glob('*.deb')),
+        'realtime_files': _files_fingerprint(realtime_files),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode('utf-8')).hexdigest()
+
+
 def _apt_base_args(state_dir: Path, archive_dir: Path, sources_list: Path) -> list[str]:
+    status_file = state_dir / 'status'
+    status_file.parent.mkdir(parents=True, exist_ok=True)
+    status_file.touch(exist_ok=True)
     return [
         '-o', f'Dir::State={state_dir}',
+        '-o', f'Dir::State::status={status_file}',
         '-o', f'Dir::State::lists={state_dir / "lists"}',
         '-o', f'Dir::Cache={archive_dir.parent}',
         '-o', f'Dir::Cache::archives={archive_dir}',
@@ -120,6 +157,7 @@ def _apt_base_args(state_dir: Path, archive_dir: Path, sources_list: Path) -> li
         '-o', 'Dir::Etc::sourceparts=-',
         '-o', 'APT::Get::List-Cleanup=0',
         '-o', 'Debug::NoLocking=true',
+        '-o', 'APT::Architecture=amd64',
     ]
 
 
@@ -172,16 +210,19 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
     offline_root = seed_data_dir / 'offline'
     repo_dir = offline_root / 'repo'
     pool_dir = repo_dir / 'pool'
+    repo_tar_path = offline_root / 'repo.tar'
     realtime_dir = offline_root / 'realtime'
     direct_dir = cache_dir / 'direct'
     archive_dir = cache_dir / 'archives'
     apt_state_dir = cache_dir / 'apt-state'
     sources_list = cache_dir / 'sources.list'
     realtime_cache_dir = cache_dir / 'realtime'
+    cached_repo_tar_path = cache_dir / 'repo.tar'
+    cached_repo_signature_path = cache_dir / 'repo.tar.signature'
 
     shutil.rmtree(repo_dir, ignore_errors=True)
     shutil.rmtree(realtime_dir, ignore_errors=True)
-    pool_dir.mkdir(parents=True, exist_ok=True)
+    repo_tar_path.unlink(missing_ok=True)
     realtime_dir.mkdir(parents=True, exist_ok=True)
     direct_dir.mkdir(parents=True, exist_ok=True)
     archive_dir.mkdir(parents=True, exist_ok=True)
@@ -202,10 +243,10 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
         destination = direct_dir / item['filename']
         _download(item['url'], destination)
         direct_debs.append(destination)
-        _copy_file(destination, pool_dir / destination.name)
 
     linux_kernel = context.get('linux_kernel', {})
     realtime = linux_kernel.get('realtime', {}) if isinstance(linux_kernel, dict) else {}
+    realtime_files: list[Path] = []
     if realtime.get('enable'):
         version_major = realtime.get('version_major', 6)
         version_minor = realtime.get('version_minor', 8)
@@ -221,6 +262,7 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
         _download(patch_url, patch_cache_path)
         _copy_file(kernel_cache_path, realtime_dir / kernel_cache_path.name)
         _copy_file(patch_cache_path, realtime_dir / patch_cache_path.name)
+        realtime_files.extend([kernel_cache_path, patch_cache_path])
 
     if packages or direct_debs:
         apt_base_args = _apt_base_args(apt_state_dir, archive_dir, sources_list)
@@ -240,9 +282,24 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
             logger.info('Reusing cached Ubuntu package lists from {}', apt_state_dir)
         _run(command)
 
+    bundle_signature = _bundle_signature(manifest, context, packages, direct_debs, archive_dir, realtime_files)
+    cached_signature = cached_repo_signature_path.read_text().strip() if cached_repo_signature_path.exists() else ''
+    if cached_repo_tar_path.exists() and cached_signature == bundle_signature:
+        logger.info('Reusing cached offline repo archive {}', cached_repo_tar_path)
+        _copy_file(cached_repo_tar_path, repo_tar_path)
+        logger.info('Offline bundle prepared at {} using cache {}', offline_root, cache_dir)
+        return offline_root
+
+    pool_dir.mkdir(parents=True, exist_ok=True)
+    for deb in direct_debs:
+        _copy_file(deb, pool_dir / deb.name)
     for deb in archive_dir.glob('*.deb'):
         _copy_file(deb, pool_dir / deb.name)
 
     _build_repo(repo_dir)
+    _archive_repo(repo_dir, repo_tar_path)
+    _copy_file(repo_tar_path, cached_repo_tar_path)
+    cached_repo_signature_path.write_text(bundle_signature)
+    shutil.rmtree(repo_dir)
     logger.info('Offline bundle prepared at {} using cache {}', offline_root, cache_dir)
     return offline_root

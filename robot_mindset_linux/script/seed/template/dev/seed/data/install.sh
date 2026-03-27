@@ -1,7 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
+LOG_FILE=/var/log/robot_mindset-install.log
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee -a "$LOG_FILE") 2>&1
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo "robot_mindset install started: $(date -Is)"
 cd "$SCRIPT_DIR"
 
 cleanup() {

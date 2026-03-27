@@ -3,7 +3,9 @@
 import argparse
 import json
 import os
+import pwd
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -26,8 +28,88 @@ def log(message):
     print(f'[robot-mindset-ui] {message}', flush=True)
 
 
+def detect_x_display():
+    x11_dir = Path('/tmp/.X11-unix')
+    if not x11_dir.is_dir():
+        return ''
+    displays = sorted(path.name for path in x11_dir.iterdir() if path.name.startswith('X'))
+    if not displays:
+        return ''
+    return f":{displays[0][1:]}"
+
+
+def discover_gui_context():
+    seed_env = {}
+    if os.environ.get('DISPLAY'):
+        seed_env['DISPLAY'] = os.environ['DISPLAY']
+    if os.environ.get('WAYLAND_DISPLAY'):
+        seed_env['WAYLAND_DISPLAY'] = os.environ['WAYLAND_DISPLAY']
+    if os.environ.get('XDG_RUNTIME_DIR'):
+        seed_env['XDG_RUNTIME_DIR'] = os.environ['XDG_RUNTIME_DIR']
+    if os.environ.get('DBUS_SESSION_BUS_ADDRESS'):
+        seed_env['DBUS_SESSION_BUS_ADDRESS'] = os.environ['DBUS_SESSION_BUS_ADDRESS']
+
+    x_display = seed_env.get('DISPLAY') or detect_x_display()
+    runtime_root = Path('/run/user')
+    preferred = []
+    fallback = []
+    if runtime_root.is_dir():
+        for runtime_dir in sorted(runtime_root.iterdir(), key=lambda item: item.name):
+            if not runtime_dir.name.isdigit():
+                continue
+            try:
+                passwd_entry = pwd.getpwuid(int(runtime_dir.name))
+            except KeyError:
+                continue
+            user_env = {'XDG_RUNTIME_DIR': str(runtime_dir)}
+            if x_display:
+                user_env['DISPLAY'] = x_display
+            wayland_display = seed_env.get('WAYLAND_DISPLAY')
+            if wayland_display:
+                user_env['WAYLAND_DISPLAY'] = wayland_display
+            else:
+                wayland_sockets = sorted(runtime_dir.glob('wayland-*'))
+                if wayland_sockets:
+                    user_env['WAYLAND_DISPLAY'] = wayland_sockets[0].name
+            bus_address = seed_env.get('DBUS_SESSION_BUS_ADDRESS')
+            if bus_address:
+                user_env['DBUS_SESSION_BUS_ADDRESS'] = bus_address
+            else:
+                bus_path = runtime_dir / 'bus'
+                if bus_path.exists():
+                    user_env['DBUS_SESSION_BUS_ADDRESS'] = f'unix:path={bus_path}'
+            if not user_env.get('DISPLAY') and not user_env.get('WAYLAND_DISPLAY'):
+                continue
+            user_env['HOME'] = passwd_entry.pw_dir
+            user_env['USER'] = passwd_entry.pw_name
+            user_env['LOGNAME'] = passwd_entry.pw_name
+            xauthority = Path(passwd_entry.pw_dir) / '.Xauthority'
+            if xauthority.exists():
+                user_env['XAUTHORITY'] = str(xauthority)
+            candidate = {'user': passwd_entry.pw_name, 'env': user_env}
+            if passwd_entry.pw_name == 'ubuntu' or passwd_entry.pw_dir.startswith('/home/'):
+                preferred.append(candidate)
+            else:
+                fallback.append(candidate)
+
+    for candidate in preferred + fallback:
+        return candidate
+    if seed_env.get('DISPLAY') or seed_env.get('WAYLAND_DISPLAY'):
+        return {'user': None, 'env': seed_env}
+    return None
+
+
 def has_gui_session():
-    return bool(os.environ.get('DISPLAY') or os.environ.get('WAYLAND_DISPLAY'))
+    return discover_gui_context() is not None
+
+
+def build_launch_env(context_env):
+    launch_env = os.environ.copy()
+    launch_env.update(context_env)
+    launch_env['NO_AT_BRIDGE'] = '1'
+    for key in ('GTK_PATH', 'GTK_MODULES', 'QT_QPA_PLATFORMTHEME'):
+        launch_env.pop(key, None)
+    return launch_env
 
 
 def read_autoinstall(autoinstall_path):
@@ -547,8 +629,34 @@ class InstallerHTTPServer(ThreadingHTTPServer):
         self.ui_state = ui_state
 
 
-def build_firefox_command(url):
-    profile_dir = Path(tempfile.mkdtemp(prefix='robot-mindset-firefox-'))
+def firefox_running(context):
+    launch_user = context.get('user')
+    command = ['pgrep']
+    if launch_user:
+        command.extend(['-u', launch_user])
+    command.extend(['-f', 'firefox'])
+    return subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+
+
+def build_firefox_reuse_command(url, executable='firefox'):
+    return [executable, '--new-window', url]
+
+
+def build_firefox_command(url, context, executable='firefox'):
+    context_env = context.get('env', {})
+    profile_root = Path(context_env.get('XDG_RUNTIME_DIR') or context_env.get('HOME') or '/tmp')
+    profile_root.mkdir(parents=True, exist_ok=True)
+    profile_dir = Path(tempfile.mkdtemp(prefix='robot-mindset-firefox-', dir=str(profile_root)))
+
+    launch_user = context.get('user')
+    if launch_user and os.geteuid() == 0:
+        try:
+            passwd_entry = pwd.getpwnam(launch_user)
+            os.chown(profile_dir, passwd_entry.pw_uid, passwd_entry.pw_gid)
+        except Exception as exc:
+            log(f'Could not chown Firefox profile {profile_dir} to {launch_user}: {exc}')
+    profile_dir.chmod(stat.S_IRWXU)
+
     user_js = profile_dir / 'user.js'
     user_js.write_text(
         '\n'.join([
@@ -564,34 +672,58 @@ def build_firefox_command(url):
         ]) + '\n',
         encoding='utf-8',
     )
-    return ['firefox', '--new-instance', '--kiosk', '--profile', str(profile_dir), url]
+    return [executable, '--no-remote', '--new-instance', '--kiosk', '--profile', str(profile_dir), url]
 
 
 def open_browser(url):
-    if not has_gui_session():
+    context = discover_gui_context()
+    if not context:
         log('No graphical session detected; installer UI will not auto-open a browser')
         return False
 
+    log(f'Detected GUI context: user={context.get("user")} env={context.get("env", {})}')
+
     commands = []
+    firefox_executable = None
+    if Path('/usr/bin/firefox').exists():
+        firefox_executable = '/usr/bin/firefox'
+    elif shutil.which('firefox'):
+        firefox_executable = shutil.which('firefox')
+
+    if firefox_executable and firefox_running(context):
+        commands.append(build_firefox_reuse_command(url, firefox_executable))
+
     if shutil.which('chromium-browser'):
-        commands.append(['chromium-browser', '--kiosk', '--incognito', url])
+        commands.append(['chromium-browser', '--new-window', '--kiosk', '--incognito', url])
     if shutil.which('chromium'):
-        commands.append(['chromium', '--kiosk', '--incognito', url])
+        commands.append(['chromium', '--new-window', '--kiosk', '--incognito', url])
     if shutil.which('google-chrome'):
-        commands.append(['google-chrome', '--kiosk', '--incognito', url])
-    if shutil.which('firefox'):
-        commands.append(build_firefox_command(url))
+        commands.append(['google-chrome', '--new-window', '--kiosk', '--incognito', url])
+    if firefox_executable:
+        commands.append(build_firefox_command(url, context, firefox_executable))
+    if shutil.which('gio'):
+        commands.append(['gio', 'open', url])
     if shutil.which('xdg-open'):
         commands.append(['xdg-open', url])
 
+    launch_env = build_launch_env(context['env'])
+    launch_user = context.get('user')
+    runuser = shutil.which('runuser')
+
     time.sleep(1)
     for command in commands:
+        launch_command = command
+        if launch_user and os.geteuid() == 0 and runuser:
+            launch_command = [runuser, '-u', launch_user, '--'] + command
         try:
-            subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            log(f"Opened installer UI using: {' '.join(command)}")
+            subprocess.Popen(launch_command, env=launch_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log(
+                f"Opened installer UI using: {' '.join(launch_command)} "
+                f"with env DISPLAY={launch_env.get('DISPLAY', '')} WAYLAND_DISPLAY={launch_env.get('WAYLAND_DISPLAY', '')}"
+            )
             return True
         except Exception as exc:
-            log(f"Could not start browser command {' '.join(command)}: {exc}")
+            log(f"Could not start browser command {' '.join(launch_command)}: {exc}")
     log(f'No supported browser launcher found. Open {url} manually if needed.')
     return False
 

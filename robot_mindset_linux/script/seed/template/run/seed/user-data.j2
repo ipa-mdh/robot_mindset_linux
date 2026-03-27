@@ -166,14 +166,15 @@ autoinstall:
   early-commands:
     - mkdir -p /mnt/seed
     - mkdir -p /var/log/installer
-    - mkdir -p /autoinstall-working
+    - mkdir -p /autoinstall-working/robot_mindset_seed
     - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
+    - tar -C /autoinstall-working/robot_mindset_seed -xf /mnt/seed/data.tar
     - |
       echo "[robot-mindset] running installer_ui.py" >> /var/log/installer/robot_mindset-installer_ui.log
-      python3 /mnt/seed/data/autoinstall/bin/installer_ui.py --autoinstall /autoinstall.yaml --selection-file /autoinstall-working/robot_mindset_installer_selection.json >> /var/log/installer/robot_mindset-installer_ui.log 2>&1
+      python3 /autoinstall-working/robot_mindset_seed/data/autoinstall/bin/installer_ui.py --autoinstall /autoinstall.yaml --selection-file /autoinstall-working/robot_mindset_installer_selection.json >> /var/log/installer/robot_mindset-installer_ui.log 2>&1
     - |
       echo "[robot-mindset] running select_storage.py" >> /var/log/installer/robot_mindset-select_storage.log
-      python3 /mnt/seed/data/autoinstall/bin/select_storage.py --autoinstall /autoinstall.yaml --selection-file /autoinstall-working/robot_mindset_installer_selection.json >> /var/log/installer/robot_mindset-select_storage.log 2>&1
+      python3 /autoinstall-working/robot_mindset_seed/data/autoinstall/bin/select_storage.py --autoinstall /autoinstall.yaml --selection-file /autoinstall-working/robot_mindset_installer_selection.json >> /var/log/installer/robot_mindset-select_storage.log 2>&1
     - |
       if [ -e "/sys/firmware/efi" ]; then
         sed -i -e "s/grub_device: UEFI/grub_device: true/" /autoinstall.yaml
@@ -184,12 +185,11 @@ autoinstall:
   updates: security
   version: 1
   late-commands: 
-    # --- copy data folder ---
+    # --- extract data folder tarball into the target system ---
     - mkdir -p /mnt/seed
     - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
-    # Copy the data folder to the target system
     - mkdir -p /target/robot_mindset
-    - cp -r /mnt/seed/data /target/robot_mindset
+    - tar -C /target/robot_mindset -xf /mnt/seed/data.tar
     # --- additional late-commands ---
 {%- if args.autoinstall.late_commands is defined %}
   {%- for item in args.autoinstall.late_commands %}

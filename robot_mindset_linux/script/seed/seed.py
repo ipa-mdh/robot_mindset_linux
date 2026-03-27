@@ -5,6 +5,7 @@
 from copy import deepcopy
 from pathlib import Path
 import shutil
+import tarfile
 from loguru import logger
 
 from utils.utils import get_config
@@ -99,6 +100,16 @@ def copy_paths(data, destination):
         else:
             logger.error(f"Source '{source}' does not exist.")
 
+def archive_seed_data(seed_data_dir: Path) -> Path:
+    """Archive the rendered seed data folder into a single tarball and remove the raw tree."""
+    seed_data_dir = Path(seed_data_dir)
+    archive_path = seed_data_dir.parent / 'data.tar'
+    archive_path.unlink(missing_ok=True)
+    with tarfile.open(archive_path, 'w') as tar:
+        tar.add(seed_data_dir, arcname='data', recursive=True)
+    shutil.rmtree(seed_data_dir)
+    return archive_path
+
 def get_context(base_context_path=Path("config/base_context.yaml"),
          context_path=Path("config/context.yaml")):
     """
@@ -139,6 +150,7 @@ def main(base_context: dict,
 
     copy_paths(context.get("data", {}), output_dir/"seed/data")
     prepare_offline_bundle(seed_data_dir=output_dir/"seed/data", context=context)
+    archive_seed_data(output_dir/"seed/data")
 
     rv = create_seed_iso(seed_dir=output_dir/"seed",
                     output_dir=output_dir)

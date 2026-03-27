@@ -13,6 +13,7 @@ from .step_ui.step_software import StepSoftware
 from .step_ui.step_create_seed import StepCreateSeed
 
 YAML_PATH = '/tmp/config.yaml'
+DEFAULT_LATE_COMMAND = 'curtin in-target --target /target bash /robot_mindset/data/install.sh'
 
 # Default YAML content if not present
 DEFAULT_CONFIG = {
@@ -48,7 +49,7 @@ DEFAULT_CONFIG = {
             'boot': {'size': '9G'}
         },
         'ssh': {'authorized_keys': ['']},
-        'late_commands': ['']
+        'late_commands': [DEFAULT_LATE_COMMAND]
     },
     'freeipa': {
         'domain': 'robot.mindset',
@@ -94,7 +95,13 @@ class SeedStepperUI:
             self.config = config
         else:
             self.config = DEFAULT_CONFIG.copy()
-            
+
+        autoinstall = self.config.setdefault('autoinstall', {})
+        late_commands = [item for item in autoinstall.get('late_commands', []) if str(item).strip()]
+        if DEFAULT_LATE_COMMAND not in late_commands:
+            late_commands.insert(0, DEFAULT_LATE_COMMAND)
+        autoinstall['late_commands'] = late_commands
+
         self.callback_create_seed = callback_create_seed
         self.callback_save_context = callback_save_context
         

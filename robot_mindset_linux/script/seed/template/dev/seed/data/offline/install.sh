@@ -6,6 +6,20 @@ REPO_DIR=/robot_mindset/data/offline/repo
 OFFLINE_SOURCE=/etc/apt/sources.list.d/robot-mindset-offline.list
 BACKUP_DIR=/etc/apt/robot_mindset_sources_backup
 PACKAGES_FILE="$SCRIPT_DIR/packages.txt"
+REPO_TAR="$SCRIPT_DIR/repo.tar"
+
+ensure_repo_available() {
+    if [ -d "$REPO_DIR" ] && [ -f "$REPO_DIR/Packages" ]; then
+        return
+    fi
+    if [ ! -f "$REPO_TAR" ]; then
+        echo "offline repo not found at $REPO_DIR and archive missing at $REPO_TAR" >&2
+        exit 1
+    fi
+    rm -rf "$REPO_DIR"
+    mkdir -p "$REPO_DIR"
+    tar -C "$REPO_DIR" -xf "$REPO_TAR"
+}
 
 backup_sources() {
     rm -rf "$BACKUP_DIR"
@@ -34,23 +48,31 @@ restore_sources() {
 }
 
 install_bootstrap_packages() {
-    if [ ! -d "$REPO_DIR" ]; then
-        echo "offline repo not found at $REPO_DIR" >&2
+    ensure_repo_available
+    if [ ! -f "$REPO_DIR/Packages" ]; then
+        echo "offline repo index not found at $REPO_DIR/Packages" >&2
+        find "$REPO_DIR" -maxdepth 2 -type f | sort | sed -n '1,40p'
         exit 1
     fi
 
+    echo "using offline repo: $REPO_DIR"
+    find "$REPO_DIR" -maxdepth 1 \( -name 'Packages' -o -name 'Release' \) -type f -print
+    find "$REPO_DIR/pool" -maxdepth 1 -name '*.deb' | wc -l | xargs echo "offline repo deb count:"
+
     backup_sources
-    printf 'deb [trusted=yes] file:%s ./\n' "$REPO_DIR" > "$OFFLINE_SOURCE"
+    printf 'deb [trusted=yes] file:%s ./
+' "$REPO_DIR" > "$OFFLINE_SOURCE"
     apt-get update
 
     if [ -f "$PACKAGES_FILE" ]; then
         mapfile -t PACKAGES < <(grep -v '^#' "$PACKAGES_FILE" | sed '/^$/d')
         if [ ${#PACKAGES[@]} -gt 0 ]; then
-            apt-get install -y "${PACKAGES[@]}"
+            echo "bootstrap packages: ${PACKAGES[*]}"
+            apt-cache policy "${PACKAGES[@]}" || true
+            apt-get -o Debug::pkgProblemResolver=yes install -y "${PACKAGES[@]}"
         fi
     fi
 }
-
 case "${1:-setup}" in
     setup)
         install_bootstrap_packages

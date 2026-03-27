@@ -6,6 +6,8 @@ import yaml
 from ..utils_ui.simple_table import SimpleTable
 from ..utils.user_storage import UserStorage
 
+DEFAULT_LATE_COMMAND = 'curtin in-target --target /target bash /robot_mindset/data/install.sh'
+
 class StepCreateSeed:
     """
     StepCreateSeed class to handle the create seed step in the GUI.
@@ -63,7 +65,10 @@ class StepCreateSeed:
                 
                 def update_late_commands(rows):
                     """Update the config with the late commands."""
-                    self.config['autoinstall']['late_commands'] = [row.get('name', '') for row in rows]
+                    commands = [row.get('name', '').strip() for row in rows if row.get('name', '').strip()]
+                    if DEFAULT_LATE_COMMAND not in commands:
+                        commands.insert(0, DEFAULT_LATE_COMMAND)
+                    self.config['autoinstall']['late_commands'] = commands
                     
                 SimpleTable(rows=rows, columns=columns,
                             update_callback=update_late_commands)
