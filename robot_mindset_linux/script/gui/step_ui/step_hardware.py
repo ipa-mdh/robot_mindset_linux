@@ -1,12 +1,7 @@
-import yaml
-import os
-import crypt
-from nicegui import ui, run, events
+from nicegui import ui
 from loguru import logger
 
 from ..utils_ui.network_table import NetworkTable, get_network_table_rows, get_networks
-from ..utils_ui.storage_disk_match_table import StorageDiskMatchTable
-from ..info_ui.ubuntu_autoinstall import help_dialog_storage
 
 class StepHardware:
     """
@@ -23,29 +18,15 @@ class StepHardware:
             with ui.expansion('Storage Configuration', icon='storage', value=True).classes('w-full justify-items-center'):
                 with ui.row().classes('w-full justify-items-center'):
                     with ui.card():
+                        ui.markdown(
+                            '**Automatic disk selection:** the installer now scans all disks at boot, uses the'
+                            ' largest free unformatted space (>= 40 GB) or the biggest empty disk, and never'
+                            ' overwrites existing partitions. Use the controls below to adjust only the'
+                            ' encryption password and boot partition size.'
+                        ).classes('text-sm text-left pb-2')
                         storage = self.config['autoinstall']['storage']
                         self.st_password = ui.input('Disk Password', value=storage.get('password', self.DEFAULT_PASSWORD), password=True, password_toggle_button=True).classes('w-full')
                         self.boot_size = ui.input('Boot Size', value=storage.get('boot', {}).get('size', '')).classes('w-full')
-
-                        def update_storage_match(rows):
-                            """Update the config with the late commands."""
-                            buffer = []
-                            for item in rows:
-                                if not isinstance(item, dict):
-                                    logger.warning("Rows must be a list of dictionaries.")
-                                d = {'key': item.get('key', ''), 'value': item.get('value', '')}
-                                buffer.append(d)
-                            self.config['autoinstall']['storage']['disk']['match'] = buffer
-
-                        with ui.row().classes('w-full').style('align-items: first baseline; gap: 0;'):
-                            ui.label('Disk Match')
-                            dialog = help_dialog_storage()
-                            ui.button(icon='help_outline', on_click=dialog.open) \
-                                .props('flat round dense size="xs"') \
-                                .classes('my-icon')
-                        disk_match_list = self.config['autoinstall']['storage']['disk']['match']
-                        StorageDiskMatchTable(rows = disk_match_list,
-                                              update_callback=update_storage_match)
 
             with ui.expansion('Network Configuration', icon='settings_ethernet', value=True).classes('w-full justify-items-center'):
                 # network_table.main()

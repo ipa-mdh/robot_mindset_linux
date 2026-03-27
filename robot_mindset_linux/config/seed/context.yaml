@@ -37,10 +37,6 @@ autoinstall:
     password: setup
     boot:
       size: 9G
-    disk:
-      match:
-        - key: size
-          value: largest
 
     
   packages:

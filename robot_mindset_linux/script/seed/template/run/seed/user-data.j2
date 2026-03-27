@@ -65,10 +65,6 @@ autoinstall:
     # 1) Wipe disk, GPT, and mark for grub
     - type: disk
       id: disk0
-      match:
-{%- for item in args.autoinstall.storage.disk.match %}
-        {{item.key}}: {{item.value}}
-{%- endfor %}
       ptable: gpt
       preserve: false
       wipe: superblock-recursive

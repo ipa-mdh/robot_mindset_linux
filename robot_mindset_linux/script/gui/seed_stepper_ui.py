@@ -30,8 +30,7 @@ DEFAULT_CONFIG = {
         },
         'storage': {
             'password': 'setup',
-            'boot': {'size': '9G'},
-            'disk': {'match': 'size.largest'}
+            'boot': {'size': '9G'}
         },
         'ssh': {'authorized_keys': ['']},
         'late_commands': ['']
