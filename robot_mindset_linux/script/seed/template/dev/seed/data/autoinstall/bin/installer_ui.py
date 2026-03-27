@@ -18,6 +18,7 @@ import select_storage
 
 DEFAULT_SELECTION_PATH = Path('/autoinstall-working/robot_mindset_installer_selection.json')
 DEFAULT_PORT = 8123
+DEFAULT_UI_TIMEOUT_SECONDS = 300
 
 
 def log(message):
@@ -228,7 +229,7 @@ HTML_PAGE = """<!DOCTYPE html>
         <div class="brand">Robot Mindset Linux</div>
         <div class="subtitle">Installer-time review for storage selection and network presets.</div>
       </div>
-      <div class="status">Installer UI active</div>
+      <div id="timeout-status" class="status">Installer UI active</div>
     </div>
 
     <div class="grid">
@@ -258,6 +259,7 @@ HTML_PAGE = """<!DOCTYPE html>
   <script>
     let state = null;
     let selectedStorageId = null;
+    let timeoutInterval = null;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -272,6 +274,27 @@ HTML_PAGE = """<!DOCTYPE html>
       const message = document.getElementById('message');
       message.textContent = text;
       message.className = kind ? `message ${kind}` : 'message';
+    }
+
+    function formatRemaining(seconds) {
+      const safe = Math.max(0, seconds);
+      const minutes = Math.floor(safe / 60);
+      const remainder = safe % 60;
+      return `${minutes}:${String(remainder).padStart(2, '0')}`;
+    }
+
+    function updateTimeoutStatus() {
+      const element = document.getElementById('timeout-status');
+      if (!state || !state.timeout_deadline_epoch) {
+        element.textContent = 'Installer UI active';
+        return;
+      }
+      const remaining = Math.max(0, Math.ceil(state.timeout_deadline_epoch - (Date.now() / 1000)));
+      element.textContent = `Installer UI active - auto-continue in ${formatRemaining(remaining)}`;
+      if (remaining === 0 && timeoutInterval) {
+        clearInterval(timeoutInterval);
+        timeoutInterval = null;
+      }
     }
 
     function renderStorage() {
@@ -379,6 +402,10 @@ HTML_PAGE = """<!DOCTYPE html>
         if (!response.ok) {
           throw new Error(payload.error || 'Submission failed');
         }
+        if (timeoutInterval) {
+          clearInterval(timeoutInterval);
+          timeoutInterval = null;
+        }
         setMessage('Selection saved. Installation continues ...', 'ok');
       } catch (error) {
         setMessage(error.message, 'error');
@@ -393,6 +420,11 @@ HTML_PAGE = """<!DOCTYPE html>
       selectedStorageId = state.selected_storage_id;
       renderStorage();
       renderNetworks();
+      updateTimeoutStatus();
+      if (timeoutInterval) {
+        clearInterval(timeoutInterval);
+      }
+      timeoutInterval = window.setInterval(updateTimeoutStatus, 1000);
       setMessage('');
     }
 
@@ -405,9 +437,11 @@ HTML_PAGE = """<!DOCTYPE html>
 
 
 class InstallerUIState:
-    def __init__(self, autoinstall_path: str, selection_path: Path):
+    def __init__(self, autoinstall_path: str, selection_path: Path, timeout_seconds: int):
         self.autoinstall_path = autoinstall_path
         self.selection_path = Path(selection_path)
+        self.timeout_seconds = max(0, int(timeout_seconds))
+        self.started_at = time.time()
         self.selection_path.parent.mkdir(parents=True, exist_ok=True)
         self.config = select_storage.load_config()
         self.disks = select_storage.gather_disks(self.config['min_free_bytes'])
@@ -429,6 +463,8 @@ class InstallerUIState:
             'storage_candidates': serialise_candidates(self.candidates),
             'selected_storage_id': self.selected_storage_id,
             'networks': self.networks,
+            'timeout_seconds': self.timeout_seconds,
+            'timeout_deadline_epoch': self.started_at + self.timeout_seconds if self.timeout_seconds > 0 else None,
         }
 
     def save_selection(self, payload):
@@ -546,15 +582,27 @@ def write_default_selection(ui_state):
     log(f'Wrote non-interactive default selection to {ui_state.selection_path}')
 
 
+def shutdown_after_timeout(server, ui_state, timeout_seconds):
+    if timeout_seconds <= 0:
+        return
+    time.sleep(timeout_seconds)
+    if ui_state.selection_path.exists():
+        return
+    log(f'Installer UI timed out after {timeout_seconds}s; falling back to default selection')
+    write_default_selection(ui_state)
+    threading.Thread(target=server.shutdown, daemon=True).start()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Serve the Robot Mindset installer UI')
     parser.add_argument('--autoinstall', default='/autoinstall.yaml')
     parser.add_argument('--selection-file', default=str(DEFAULT_SELECTION_PATH))
     parser.add_argument('--host', default='127.0.0.1')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT)
+    parser.add_argument('--timeout', type=int, default=DEFAULT_UI_TIMEOUT_SECONDS)
     args = parser.parse_args()
 
-    ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file))
+    ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file), args.timeout)
 
     if not has_gui_session():
         write_default_selection(ui_state)
@@ -564,6 +612,8 @@ def main():
     server = InstallerHTTPServer((args.host, args.port), ui_state)
     browser_thread = threading.Thread(target=open_browser, args=(url,), daemon=True)
     browser_thread.start()
+    timeout_thread = threading.Thread(target=shutdown_after_timeout, args=(server, ui_state, args.timeout), daemon=True)
+    timeout_thread.start()
     log(f'Installer UI listening on {url}')
     server.serve_forever()
     server.server_close()
