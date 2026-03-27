@@ -1,0 +1,12 @@
+{
+  "bios_grub_size": "4M",
+  "efi_size": "1G",
+  "boot_size": "{{ args.autoinstall.storage.boot.size }}",
+  "boot_label": "BOOT",
+  "efi_label": "ESP",
+  "root_label": "root",
+  "filesystem": "btrfs",
+  "encryption_key": "{{ args.autoinstall.storage.password }}",
+  "min_free_bytes": {{ args.autoinstall.storage.min_free_bytes | default(42949672960) }},
+  "prefer_ssd": true
+}

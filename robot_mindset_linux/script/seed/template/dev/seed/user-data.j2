@@ -59,6 +59,7 @@ autoinstall:
     authorized-keys: {{ args.autoinstall.ssh.authorized_keys | default("[]") }}
     install-server: true
   storage:
+    # robot_mindset_storage_begin
     version: 1
     config:
     # 1) Wipe disk, GPT, and mark for grub
@@ -150,7 +151,11 @@ autoinstall:
       id: root-mount
       path: /
       device: root-fmt
+    # robot_mindset_storage_end
   early-commands:
+    - mkdir -p /mnt/seed
+    - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
+    - python3 /mnt/seed/data/autoinstall/bin/select_storage.py --autoinstall /autoinstall.yaml
     - |
       if [ -e "/sys/firmware/efi" ]; then
         sed -i -e "s/grub_device: UEFI/grub_device: true/" /autoinstall.yaml
