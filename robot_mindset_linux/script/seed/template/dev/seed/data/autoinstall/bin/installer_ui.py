@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import threading
 import time
+import tempfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -407,6 +408,9 @@ HTML_PAGE = """<!DOCTYPE html>
           timeoutInterval = null;
         }
         setMessage('Selection saved. Installation continues ...', 'ok');
+        window.setTimeout(() => {
+          window.close();
+        }, 300);
       } catch (error) {
         setMessage(error.message, 'error');
         button.disabled = false;
@@ -543,22 +547,45 @@ class InstallerHTTPServer(ThreadingHTTPServer):
         self.ui_state = ui_state
 
 
+def build_firefox_command(url):
+    profile_dir = Path(tempfile.mkdtemp(prefix='robot-mindset-firefox-'))
+    user_js = profile_dir / 'user.js'
+    user_js.write_text(
+        '\n'.join([
+            'user_pref("browser.aboutwelcome.enabled", false);',
+            'user_pref("browser.shell.checkDefaultBrowser", false);',
+            'user_pref("browser.startup.homepage_override.mstone", "ignore");',
+            'user_pref("startup.homepage_override_url", "");',
+            'user_pref("startup.homepage_welcome_url", "");',
+            'user_pref("startup.homepage_welcome_url.additional", "");',
+            'user_pref("browser.startup.page", 0);',
+            'user_pref("browser.tabs.warnOnClose", false);',
+            'user_pref("browser.tabs.warnOnOpen", false);',
+        ]) + '\n',
+        encoding='utf-8',
+    )
+    return ['firefox', '--new-instance', '--kiosk', '--profile', str(profile_dir), url]
+
+
 def open_browser(url):
     if not has_gui_session():
         log('No graphical session detected; installer UI will not auto-open a browser')
         return False
 
-    commands = [
-        ['firefox', '--kiosk', url],
-        ['chromium-browser', '--kiosk', url],
-        ['chromium', '--kiosk', url],
-        ['google-chrome', '--kiosk', url],
-        ['xdg-open', url],
-    ]
+    commands = []
+    if shutil.which('chromium-browser'):
+        commands.append(['chromium-browser', '--kiosk', '--incognito', url])
+    if shutil.which('chromium'):
+        commands.append(['chromium', '--kiosk', '--incognito', url])
+    if shutil.which('google-chrome'):
+        commands.append(['google-chrome', '--kiosk', '--incognito', url])
+    if shutil.which('firefox'):
+        commands.append(build_firefox_command(url))
+    if shutil.which('xdg-open'):
+        commands.append(['xdg-open', url])
+
     time.sleep(1)
     for command in commands:
-        if not shutil.which(command[0]):
-            continue
         try:
             subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             log(f"Opened installer UI using: {' '.join(command)}")
