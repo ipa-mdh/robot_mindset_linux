@@ -18,10 +18,28 @@ class StoragePlannerError(RuntimeError):
     """Raised when storage selection cannot continue safely."""
 
 
-def fail(message: str, exit_code: int = 1):
-    """Print an error message and exit."""
+def log(message):
+    """Write verbose diagnostic output to stderr so Subiquity captures it."""
     print(f"[robot-mindset] {message}", file=sys.stderr)
+
+
+def fail(message: str):
+    """Print an error message and exit."""
+    log(message)
     raise StoragePlannerError(message)
+
+
+def bytes_to_gib(value):
+    return round(value / float(1024 ** 3), 2)
+
+
+def summarize_region(region):
+    if not region:
+        return "none"
+    return (
+        f"start={region['start']} end={region['end']} "
+        f"size={region['size']}B ({bytes_to_gib(region['size'])} GiB)"
+    )
 
 
 def run_command(command):
@@ -60,7 +78,7 @@ def parse_size(value):
         number = text
     try:
         amount = Decimal(number)
-    except Exception as exc:  # pragma: no cover - best effort parsing
+    except Exception as exc:
         fail(f"Cannot parse size '{value}': {exc}")
     return int(amount * multiplier)
 
@@ -85,6 +103,14 @@ def load_config():
     }
     if not config["encryption_key"]:
         fail("Encryption key missing in storage planner config.json")
+    log(
+        "Loaded config: "
+        f"boot_size={config['boot_size']}B ({bytes_to_gib(config['boot_size'])} GiB), "
+        f"efi_size={config['efi_size']}B ({bytes_to_gib(config['efi_size'])} GiB), "
+        f"bios_grub_size={config['bios_grub_size']}B, "
+        f"min_free_bytes={config['min_free_bytes']}B ({bytes_to_gib(config['min_free_bytes'])} GiB), "
+        f"prefer_ssd={config['prefer_ssd']}"
+    )
     return config
 
 
@@ -98,6 +124,8 @@ def collect_lsblk():
         "NAME,TYPE,ROTA,SIZE,FSTYPE,MOUNTPOINTS"
     ])
     data = json.loads(output)
+    log(f"lsblk returned {len(data.get('blockdevices', []))} blockdevices")
+    log(f"lsblk raw: {json.dumps(data, sort_keys=True)}")
     return data.get("blockdevices", [])
 
 
@@ -109,9 +137,33 @@ def parse_partition_number(name: str):
     return None
 
 
-def parse_parted(device_path):
+def parse_parted(device_path, disk_size):
     """Use parted to identify existing free regions on the disk."""
-    output = run_command(["parted", "-m", device_path, "unit", "B", "print", "free"])
+    command = ["parted", "-m", device_path, "unit", "B", "print", "free"]
+    try:
+        result = subprocess.run(
+            command,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        output = result.stdout
+        stderr = result.stderr or ""
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr or ""
+        log(f"parted stderr for {device_path}: {stderr.strip() or '<empty>'}")
+        # Blank disks often have no partition table yet. Treat them as fully free.
+        stderr_lower = stderr.lower()
+        if "unrecognised disk label" in stderr_lower or "unrecognized disk label" in stderr_lower:
+            log(f"{device_path}: no partition table, treating entire disk as free")
+            return "gpt", [{"start": 0, "end": disk_size, "size": disk_size}], ""
+        fail(f"Command 'parted -m {device_path} unit B print free' failed: {stderr.strip() or exc}")
+
+    if stderr.strip():
+        log(f"parted stderr for {device_path}: {stderr.strip()}")
+    log(f"parted raw for {device_path}: {output.strip() or '<empty>'}")
+
     lines = [line.strip().rstrip(";") for line in output.splitlines() if line.strip()]
     free_regions = []
     table_type = None
@@ -135,7 +187,13 @@ def parse_parted(device_path):
             continue
         if number == "free":
             free_regions.append({"start": start, "end": end, "size": size})
-    return table_type or "unknown", free_regions
+
+    # Some blank disks report table_type unknown but do not emit explicit free rows.
+    if not free_regions and (table_type in {None, "unknown"}):
+        log(f"{device_path}: unknown partition table with no free rows, treating entire disk as free")
+        return "gpt", [{"start": 0, "end": disk_size, "size": disk_size}], output
+
+    return table_type or "unknown", free_regions, output
 
 
 def gather_disks():
@@ -151,7 +209,7 @@ def gather_disks():
         if size <= 0:
             continue
         device_path = f"/dev/{name}"
-        table_type, free_regions = parse_parted(device_path)
+        table_type, free_regions, parted_output = parse_parted(device_path, size)
         partitions = []
         children = entry.get("children") or []
         for child in children:
@@ -165,7 +223,7 @@ def gather_disks():
                 "fstype": child.get("fstype"),
             })
         largest_free = max(free_regions, key=lambda region: region["size"]) if free_regions else None
-        disks.append({
+        disk = {
             "name": name,
             "path": device_path,
             "size": size,
@@ -174,7 +232,22 @@ def gather_disks():
             "ptable": table_type,
             "free_regions": free_regions,
             "largest_free": largest_free,
-        })
+            "parted_output": parted_output,
+        }
+        disks.append(disk)
+        log(
+            f"Detected disk {device_path}: size={size}B ({bytes_to_gib(size)} GiB), "
+            f"ssd={disk['is_ssd']}, ptable={table_type}, partitions={len(partitions)}, "
+            f"largest_free={summarize_region(largest_free)}"
+        )
+        for partition in partitions:
+            log(
+                f"  partition {partition['name']}: number={partition['number']} "
+                f"size={partition['size']}B ({bytes_to_gib(partition['size'])} GiB) "
+                f"fstype={partition['fstype']}"
+            )
+        for index, region in enumerate(free_regions, start=1):
+            log(f"  free region {index}: {summarize_region(region)}")
     return disks
 
 
@@ -191,23 +264,35 @@ def select_disk(disks, min_free_bytes, prefer_ssd=True):
     empty = []
     for disk in disks:
         region = disk.get("largest_free")
-        if not region or region.get("size", 0) < min_free_bytes:
+        if not region:
+            log(f"Skipping {disk['path']}: no free region detected")
+            continue
+        if region.get("size", 0) < min_free_bytes:
+            log(
+                f"Skipping {disk['path']}: largest free region {region['size']}B "
+                f"({bytes_to_gib(region['size'])} GiB) is below threshold "
+                f"{min_free_bytes}B ({bytes_to_gib(min_free_bytes)} GiB)"
+            )
             continue
         if disk.get("partitions"):
+            log(f"Candidate {disk['path']} classified as free-space install target")
             populated.append(disk)
         else:
+            log(f"Candidate {disk['path']} classified as whole-disk install target")
             empty.append(disk)
 
     if populated:
         populated.sort(key=sort_key, reverse=True)
         selection = populated[0]
         selection["scenario"] = "free-space"
+        log(f"Selected populated disk {selection['path']} with region {summarize_region(selection['largest_free'])}")
         return selection
 
     if empty:
         empty.sort(key=sort_key, reverse=True)
         selection = empty[0]
         selection["scenario"] = "whole-disk"
+        log(f"Selected empty disk {selection['path']} with region {summarize_region(selection['largest_free'])}")
         return selection
 
     return None
@@ -234,7 +319,6 @@ def build_plan(disk, config):
         fail("Internal error: disk selection missing scenario")
 
     disk_id = f"disk-{disk['name']}"
-    base_alignment = ALIGNMENT_BYTES
     region = disk.get("largest_free")
     if not region:
         fail("Selected disk reports no free regions")
@@ -254,10 +338,16 @@ def build_plan(disk, config):
 
     free_start = region["start"]
     free_end = region["end"]
-    aligned_start = align_up(free_start, base_alignment)
+    aligned_start = align_up(free_start, ALIGNMENT_BYTES)
     available = free_end - aligned_start
 
     required_for_fixed_parts = bios_size + efi_size + boot_size
+    log(
+        f"Building plan for {disk['path']}: scenario={scenario}, free_start={free_start}, "
+        f"aligned_start={aligned_start}, free_end={free_end}, available={available}B "
+        f"({bytes_to_gib(max(available, 0))} GiB), fixed_partitions={required_for_fixed_parts}B"
+    )
+
     if scenario == "free-space":
         if available <= 0:
             fail("Free region has no usable capacity after alignment")
@@ -350,6 +440,7 @@ def build_plan(disk, config):
     plan["dm_id"] = f"{disk_id}-cryptmap"
     plan["root_fmt_id"] = f"{disk_id}-root-fmt"
 
+    log(f"Plan root partition size: {root_size}")
     return plan
 
 
@@ -423,6 +514,7 @@ def render_storage_lines(plan, config):
             add(6, "id: root-mount")
             add(6, f"device: {plan['root_fmt_id']}")
             add(6, "path: /")
+    log(f"Rendered {len(lines)} storage yaml lines")
     return lines
 
 
@@ -432,15 +524,43 @@ def update_autoinstall(autoinstall_path, new_lines):
     if not path.exists():
         fail(f"Cannot find autoinstall config at {autoinstall_path}")
     lines = path.read_text(encoding="utf-8").splitlines()
-    try:
-        start_idx = next(i for i, line in enumerate(lines) if MARKER_START in line)
-        end_idx = next(i for i, line in enumerate(lines) if MARKER_END in line)
-    except StopIteration:
-        fail("Autoinstall template missing storage marker comments")
-    if end_idx <= start_idx:
-        fail("Storage marker ordering invalid in autoinstall template")
-    updated = lines[: start_idx + 1] + new_lines + lines[end_idx:]
+
+    start_idx = end_idx = None
+    replacement_mode = None
+
+    marker_start_idx = next((i for i, line in enumerate(lines) if MARKER_START in line), None)
+    marker_end_idx = next((i for i, line in enumerate(lines) if MARKER_END in line), None)
+    if marker_start_idx is not None and marker_end_idx is not None:
+        if marker_end_idx <= marker_start_idx:
+            fail("Storage marker ordering invalid in autoinstall template")
+        start_idx = marker_start_idx + 1
+        end_idx = marker_end_idx
+        replacement_mode = "marker-comments"
+    else:
+        storage_idx = next((i for i, line in enumerate(lines) if line.strip() == "storage:"), None)
+        if storage_idx is None:
+            preview = "\n".join(lines[:80])
+            fail(
+                "Could not locate storage section in /autoinstall.yaml. "
+                f"First 80 lines follow:\n{preview}"
+            )
+
+        next_top_level_idx = None
+        for i in range(storage_idx + 1, len(lines)):
+            line = lines[i]
+            if not line.strip():
+                continue
+            if line == line.lstrip() and line.strip().endswith(":"):
+                next_top_level_idx = i
+                break
+
+        start_idx = storage_idx + 1
+        end_idx = next_top_level_idx if next_top_level_idx is not None else len(lines)
+        replacement_mode = "section-fallback"
+
+    updated = lines[:start_idx] + new_lines + lines[end_idx:]
     path.write_text("\n".join(updated) + "\n", encoding="utf-8")
+    log(f"Updated autoinstall file at {autoinstall_path} using {replacement_mode}")
 
 
 def write_debug(plan, disks):
@@ -462,6 +582,7 @@ def write_debug(plan, disks):
     debug_path = debug_dir / "robot_mindset_storage_plan.json"
     with open(debug_path, "w", encoding="utf-8") as handle:
         json.dump(payload, handle, indent=2)
+    log(f"Wrote debug plan to {debug_path}")
 
 
 def main():
@@ -482,7 +603,7 @@ def main():
     new_lines = render_storage_lines(plan, config)
     update_autoinstall(args.autoinstall, new_lines)
     write_debug(plan, disks)
-    print(f"[robot-mindset] Selected {selection['path']} using scenario {plan['scenario']}")
+    log(f"Selected {selection['path']} using scenario {plan['scenario']}")
 
 
 if __name__ == "__main__":
@@ -490,6 +611,6 @@ if __name__ == "__main__":
         main()
     except StoragePlannerError:
         sys.exit(1)
-    except Exception as exc:  # pragma: no cover - best effort safety
-        print(f"[robot-mindset] Unexpected failure: {exc}", file=sys.stderr)
+    except Exception as exc:
+        log(f"Unexpected failure: {exc}")
         sys.exit(1)

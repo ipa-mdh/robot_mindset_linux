@@ -150,8 +150,11 @@ autoinstall:
     # robot_mindset_storage_end
   early-commands:
     - mkdir -p /mnt/seed
+    - mkdir -p /var/log/installer
     - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
-    - python3 /mnt/seed/data/autoinstall/bin/select_storage.py --autoinstall /autoinstall.yaml
+    - |
+      echo "[robot-mindset] running select_storage.py" >> /var/log/installer/robot_mindset-select_storage.log
+      python3 /mnt/seed/data/autoinstall/bin/select_storage.py --autoinstall /autoinstall.yaml >> /var/log/installer/robot_mindset-select_storage.log 2>&1
     - |
       if [ -e "/sys/firmware/efi" ]; then
         sed -i -e "s/grub_device: UEFI/grub_device: true/" /autoinstall.yaml
