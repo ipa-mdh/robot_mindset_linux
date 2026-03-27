@@ -1,0 +1,39 @@
+---
+# defaults file for realtime-patch
+working_dir: /tmp
+realtime_artifacts_dir: /robot_mindset/data/offline/realtime
+version_major: 5
+version_minor: 16
+version_patch: 2
+version_rt: 19
+version: "{{version_major}}.{{version_minor}}.{{version_patch}}"
+version_with_rt: "{{version}}-rt{{version_rt}}"
+
+default_config: "/boot/config-{{ansible_facts['kernel']}}"
+
+scripts_config_disable:
+  - CONFIG_PREEMPT_NONE
+  - CONFIG_PREEMPT_VOLUNTARY
+  - CONFIG_PREEMPT
+  - SYSTEM_TRUSTED_KEYS
+  - SYSTEM_REVOCATION_KEYS
+  - SYSTEM_REVOCATION_LIST
+
+scripts_config_enable:
+  - CONFIG_PREEMPT_RT
+
+scripts_config_set_string:
+  - key: SYSTEM_TRUSTED_KEYS
+    value: '""'
+
+limits_conf_values:
+  - "@realtime soft rtprio 99"
+  - "@realtime soft priority 99"
+  - "@realtime soft memlock 102400"
+  - "@realtime hard rtprio 99"
+  - "@realtime hard priority 99"
+  - "@realtime hard memlock 102400"
+
+git_config:
+  user.name: Robot Mindset (autoinstall)
+  user.email: mail@robot-mindset.com

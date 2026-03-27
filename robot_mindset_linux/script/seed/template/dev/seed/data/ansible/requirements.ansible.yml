@@ -1,7 +1,4 @@
-collections:
-  - name: community.general
-    # version: 9.5.7
-
+# Build-time source manifest only. The target install uses vendored roles under data/ansible/roles.
 roles:
   - name: balena-etcher
     src: https://github.com/ipa-mdh/ansible-role-balena-etcher.git
@@ -13,9 +10,5 @@ roles:
     src: https://github.com/ipa-mdh/ansible-role-webmin.git
   - name: NIC
     src: https://github.com/ipa-mdh/ansible-role-nic.git
-  - name: add_user
-    src: https://github.com/ipa-mdh/ansible-role-add-user.git
   - name: realtime-patch
     src: https://github.com/ipa-mdh/ansible-role-linux-kernel-rt-preempt.git
-  # - name: vpn
-  #   src: https://gitlab.cc-asp.fraunhofer.de/ansible/roles/vpn.git

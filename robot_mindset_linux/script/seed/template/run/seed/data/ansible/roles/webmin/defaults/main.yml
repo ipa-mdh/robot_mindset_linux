@@ -1,0 +1,4 @@
+---
+webmin_packages:
+  - webmin
+  - usermin

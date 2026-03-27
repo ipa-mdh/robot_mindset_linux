@@ -17,6 +17,21 @@ YAML_PATH = '/tmp/config.yaml'
 # Default YAML content if not present
 DEFAULT_CONFIG = {
     'environment': 'dev',
+    'environments': [
+        {
+            'environment': 'dev',
+            'default': True,
+            'label': 'Ubuntu 24.04.2 Desktop (dev) AMD64',
+            'image': 'ubuntu-24.04.2-desktop-amd64.iso',
+            'autoinstall': {'source': {'id': 'ubuntu-desktop-minimal'}},
+        },
+        {
+            'environment': 'prod',
+            'label': 'Ubuntu 22.04.5 Server (prod) AMD64',
+            'image': 'ubuntu-22.04.5-live-server-amd64.iso',
+            'autoinstall': {'source': {'id': 'ubuntu-server-minimal'}},
+        },
+    ],
     'networks': [
         {'name': 'public', 'match': {'macaddress': '18:00:ab:00:00:00'}},
         {'name': 'machine', 'ipv4': '192.168.1.10/24', 'match': {'macaddress': '18:00:00:cd:00:01'}},

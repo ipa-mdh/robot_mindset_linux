@@ -2,7 +2,10 @@ environment: dev
 
 environments:
   - environment: dev
+    default: true
+    label: Ubuntu 24.04.2 Desktop (dev) AMD64
     image: ubuntu-24.04.2-desktop-amd64.iso
+    ubuntu_release: noble
     autoinstall: 
       source:
         id: ubuntu-desktop-minimal
@@ -11,7 +14,9 @@ environments:
       # ansible: data/dev/ansible
 
   - environment: prod
+    label: Ubuntu 22.04.5 Server (prod) AMD64
     image: ubuntu-22.04.5-live-server-amd64.iso
+    ubuntu_release: jammy
     autoinstall: 
       source:
         id: ubuntu-server-minimal

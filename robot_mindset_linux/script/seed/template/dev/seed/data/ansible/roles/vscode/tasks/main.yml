@@ -1,0 +1,7 @@
+---
+- name: Install Visual Studio Code from local offline repository
+  become: true
+  ansible.builtin.apt:
+    name: "{{ vscode_package_name }}"
+    state: present
+    update_cache: true

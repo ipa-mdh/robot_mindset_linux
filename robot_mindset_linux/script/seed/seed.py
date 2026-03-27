@@ -10,6 +10,7 @@ from loguru import logger
 from utils.utils import get_config
 from seed.render_all import Render
 from seed.geniso import create_seed_iso
+from seed.offline_bundle import prepare_offline_bundle
 
 def find_and_merge_environment(base_context, context):
     """
@@ -137,6 +138,7 @@ def main(base_context: dict,
                context=context)
 
     copy_paths(context.get("data", {}), output_dir/"seed/data")
+    prepare_offline_bundle(seed_data_dir=output_dir/"seed/data", context=context)
 
     rv = create_seed_iso(seed_dir=output_dir/"seed",
                     output_dir=output_dir)

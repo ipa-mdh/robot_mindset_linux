@@ -5,11 +5,6 @@ autoinstall:
   apt:
     disable_components: []
     fallback: offline-install
-    geoip: true
-    mirror-selection:
-      primary:
-      - country-mirror
-      - uri: "http://de.archive.ubuntu.com/ubuntu"
   codecs:
     install: false
   drivers:
@@ -55,9 +50,9 @@ autoinstall:
     id: {{ args.autoinstall.source.id }}
     search_drivers: false
   ssh:
-    allow-pw: {{ args.autoinstall.ssh.allow_pw | default("no") }}
-    authorized-keys: {{ args.autoinstall.ssh.authorized_keys | default("[]") }}
-    install-server: true
+    allow-pw: false
+    authorized-keys: []
+    install-server: false
   storage:
     # robot_mindset_storage_begin
     version: 1
@@ -162,18 +157,8 @@ autoinstall:
         sed -i -e "s/grub_device: UEFI/grub_device: false/" /autoinstall.yaml
       fi
   # The type of updates that will be downloaded and installed after the system installation, and before rebooting into the target system
-  updates: security
+  updates: none
   version: 1
-
-{%- if args.autoinstall.packages is defined %}
-  packages:
-    # --- additional packages ---
-  {%- for item in args.autoinstall.packages %}
-    - {{ item }}
-  {%- endfor %}
-{%- endif %}
-    # ~~~ additional packages ~~~
-
   late-commands: 
     # --- copy data folder ---
     - mkdir -p /mnt/seed
