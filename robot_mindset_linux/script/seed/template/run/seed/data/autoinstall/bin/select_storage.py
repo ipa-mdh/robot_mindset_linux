@@ -144,14 +144,14 @@ def parse_parted_output(output, device_path):
     free_regions = []
     table_type = None
     for line in lines:
-        if line == 'BYT':
+        if line in {'BYT', 'BYT;'}:
             continue
+        raw_parts = line.split(':')
+        parts = [part.rstrip(';') for part in raw_parts]
         if line.startswith(device_path):
-            parts = line.split(':')
             if len(parts) >= 6:
                 table_type = parts[5]
             continue
-        parts = line.split(':')
         if len(parts) < 4:
             continue
         try:
@@ -160,8 +160,8 @@ def parse_parted_output(output, device_path):
             size = int(parts[3][:-1])
         except ValueError:
             continue
-        is_free_row = parts[0] == 'free' or (len(parts) > 4 and parts[4] == 'free')
-        if is_free_row:
+        marker_fields = {field for field in parts if field}
+        if 'free' in marker_fields:
             free_regions.append({'start': start, 'end': end, 'size': size})
     return table_type or 'unknown', free_regions
 
@@ -181,16 +181,17 @@ def parse_parted(device_path, disk_size):
         output = result.stdout
         stderr = result.stderr or ""
     except subprocess.TimeoutExpired:
-        log(f"parted timed out for {device_path}; skipping this disk scan")
-        return 'unknown', [], ''
+        log(f"parted timed out for {device_path}; skipping this disk for safety")
+        return 'unknown', [], '', 'error'
     except subprocess.CalledProcessError as exc:
         stderr = exc.stderr or ''
         log(f"parted stderr for {device_path}: {stderr.strip() or '<empty>'}")
         stderr_lower = stderr.lower()
         if 'unrecognised disk label' in stderr_lower or 'unrecognized disk label' in stderr_lower:
-            log(f'{device_path}: no partition table, treating entire disk as free')
-            return 'gpt', [{'start': 0, 'end': disk_size, 'size': disk_size}], ''
-        fail(f"Command 'parted -m {device_path} unit B print free' failed: {stderr.strip() or exc}")
+            log(f'{device_path}: no partition table detected by parted; marking disk as blank')
+            return 'unknown', [{'start': 0, 'end': disk_size, 'size': disk_size}], '', 'blank'
+        log(f"parted failed for {device_path}; skipping this disk for safety")
+        return 'unknown', [], '', 'error'
 
     if stderr.strip():
         log(f'parted stderr for {device_path}: {stderr.strip()}')
@@ -198,10 +199,21 @@ def parse_parted(device_path, disk_size):
 
     table_type, free_regions = parse_parted_output(output, device_path)
     if not free_regions and table_type in {None, 'unknown'}:
-        log(f'{device_path}: unknown partition table with no free rows, treating entire disk as free')
-        return 'gpt', [{'start': 0, 'end': disk_size, 'size': disk_size}], output
+        log(f'{device_path}: unknown partition table with no free rows; treating disk as blank')
+        return 'unknown', [{'start': 0, 'end': disk_size, 'size': disk_size}], output, 'blank'
+    return table_type, free_regions, output, 'ok'
 
-    return table_type, free_regions, output
+
+def is_whole_disk_region(region, disk_size):
+    if not region:
+        return False
+    start = region.get('start', 0)
+    end = region.get('end', 0)
+    size = region.get('size', 0)
+    leading_gap_ok = start <= ALIGNMENT_BYTES
+    trailing_gap_ok = max(disk_size - end, 0) <= ALIGNMENT_BYTES
+    large_enough = size >= max(disk_size - (2 * ALIGNMENT_BYTES), 0)
+    return leading_gap_ok and trailing_gap_ok and large_enough
 
 
 def gather_disks(min_free_bytes):
@@ -230,18 +242,23 @@ def gather_disks(min_free_bytes):
                 'fstype': child.get('fstype'),
             })
 
-        total_partition_bytes = sum(partition['size'] for partition in partitions)
-        if not partitions:
-            table_type, free_regions, parted_output = 'gpt', [{'start': 0, 'end': size, 'size': size}], ''
-            log(f'{device_path}: no partitions reported by lsblk, skipping parted and treating whole disk as free')
-        elif max(size - total_partition_bytes, 0) < min_free_bytes:
-            table_type, free_regions, parted_output = 'unknown', [], ''
-            log(
-                f'{device_path}: skipping parted because total unallocated capacity '
-                f'{max(size - total_partition_bytes, 0)}B is below threshold {min_free_bytes}B'
-            )
-        else:
-            table_type, free_regions, parted_output = parse_parted(device_path, size)
+        table_type, free_regions, parted_output, parted_state = parse_parted(device_path, size)
+        whole_disk_allowed = False
+        if parted_state == 'error':
+            free_regions = []
+            log(f'{device_path}: ignoring disk because parted could not verify its layout safely')
+        elif partitions and parted_state == 'blank':
+            free_regions = []
+            log(f'{device_path}: lsblk reported partitions but parted reported a blank disk; skipping for safety')
+        elif not partitions and parted_state == 'blank':
+            whole_disk_allowed = True
+            log(f'{device_path}: verified as an empty disk by parted')
+        elif not partitions and is_whole_disk_region(max(free_regions, key=lambda region: region['size']) if free_regions else None, size):
+            whole_disk_allowed = True
+            log(f'{device_path}: no partitions reported and parted returned a whole-disk free region')
+        elif not partitions:
+            free_regions = []
+            log(f'{device_path}: no partitions reported by lsblk but parted did not confirm a blank disk; skipping whole-disk install for safety')
 
         largest_free = max(free_regions, key=lambda region: region['size']) if free_regions else None
         disk = {
@@ -254,11 +271,14 @@ def gather_disks(min_free_bytes):
             'free_regions': free_regions,
             'largest_free': largest_free,
             'parted_output': parted_output,
+            'parted_state': parted_state,
+            'whole_disk_allowed': whole_disk_allowed,
         }
         disks.append(disk)
         log(
             f'Detected disk {device_path}: size={size}B ({bytes_to_gib(size)} GiB), '
             f"ssd={disk['is_ssd']}, ptable={table_type}, partitions={len(partitions)}, "
+            f"parted_state={parted_state}, whole_disk_allowed={whole_disk_allowed}, "
             f"largest_free={summarize_region(largest_free)}"
         )
         for partition in partitions:
@@ -313,6 +333,9 @@ def collect_candidates(disks, min_free_bytes, prefer_ssd=True):
             log(f"Skipping {disk['path']}: no free region detected")
             continue
         if disk.get('partitions'):
+            if disk.get('ptable') not in {'gpt', 'msdos'}:
+                log(f"Skipping {disk['path']}: partitioned disk has unsupported partition table {disk.get('ptable')}")
+                continue
             if region.get('size', 0) < min_free_bytes:
                 log(
                     f"Skipping {disk['path']}: largest free region {region['size']}B "
@@ -324,11 +347,13 @@ def collect_candidates(disks, min_free_bytes, prefer_ssd=True):
             candidate['scenario'] = 'free-space'
             populated.append(candidate)
             log(f"Candidate {disk['path']} classified as free-space install target")
-        else:
+        elif disk.get('whole_disk_allowed'):
             candidate = dict(disk)
             candidate['scenario'] = 'whole-disk'
             empty.append(candidate)
             log(f"Candidate {disk['path']} classified as whole-disk install target")
+        else:
+            log(f"Skipping {disk['path']}: whole-disk installation is not allowed because the disk layout could not be verified as empty")
 
     populated.sort(key=lambda disk: selection_sort_key(disk, prefer_ssd=prefer_ssd), reverse=True)
     empty.sort(key=lambda disk: selection_sort_key(disk, prefer_ssd=prefer_ssd), reverse=True)
@@ -369,10 +394,17 @@ def build_plan(disk, config):
     if not region:
         fail('Selected disk reports no free regions')
 
+    if scenario == 'whole-disk':
+        ptable = 'gpt'
+    else:
+        ptable = disk.get('ptable')
+        if ptable not in {'gpt', 'msdos'}:
+            fail(f"Selected populated disk has unsupported partition table: {ptable}")
+
     plan = {
         'disk_id': disk_id,
         'disk_path': disk['path'],
-        'ptable': disk.get('ptable', 'gpt'),
+        'ptable': ptable,
         'scenario': scenario,
         'partitions': [],
         'region': region,
@@ -380,7 +412,7 @@ def build_plan(disk, config):
 
     boot_size = config['boot_size']
     efi_size = config['efi_size']
-    bios_size = config['bios_grub_size'] if disk.get('ptable', 'gpt') == 'gpt' else 0
+    bios_size = config['bios_grub_size'] if ptable == 'gpt' else 0
 
     free_start = region['start']
     free_end = region['end']

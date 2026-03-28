@@ -5,13 +5,18 @@ import json
 import os
 import pwd
 import shutil
+import signal
 import stat
 import subprocess
 import threading
+import traceback
 import time
 import tempfile
+import urllib.error
+import urllib.request
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import html
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,6 +27,9 @@ import select_storage
 DEFAULT_SELECTION_PATH = Path('/autoinstall-working/robot_mindset_installer_selection.json')
 DEFAULT_PORT = 8123
 DEFAULT_UI_TIMEOUT_SECONDS = 300
+
+BROWSER_PROCESSES = []
+BROWSER_PROCESSES_LOCK = threading.Lock()
 
 
 def log(message):
@@ -343,6 +351,7 @@ HTML_PAGE = """<!DOCTYPE html>
     let state = null;
     let selectedStorageId = null;
     let timeoutInterval = null;
+    let closeRequested = false;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -377,7 +386,41 @@ HTML_PAGE = """<!DOCTYPE html>
       if (remaining === 0 && timeoutInterval) {
         clearInterval(timeoutInterval);
         timeoutInterval = null;
+        requestClose('Installer timed out. Installation continues with the default selection.', true);
       }
+    }
+
+    function requestClose(message, forceBlank=false) {
+      if (closeRequested) {
+        return;
+      }
+      closeRequested = true;
+      if (timeoutInterval) {
+        clearInterval(timeoutInterval);
+        timeoutInterval = null;
+      }
+      setMessage(message, 'ok');
+      const button = document.getElementById('submit-button');
+      button.disabled = true;
+      window.setTimeout(() => {
+        try {
+          window.open('', '_self');
+        } catch (error) {
+          // Ignore browser restrictions.
+        }
+        try {
+          window.close();
+        } catch (error) {
+          // Ignore browser restrictions.
+        }
+        if (forceBlank) {
+          try {
+            window.location.replace('about:blank');
+          } catch (error) {
+            // Ignore browser restrictions.
+          }
+        }
+      }, 150);
     }
 
     function renderStorage() {
@@ -489,10 +532,7 @@ HTML_PAGE = """<!DOCTYPE html>
           clearInterval(timeoutInterval);
           timeoutInterval = null;
         }
-        setMessage('Selection saved. Installation continues ...', 'ok');
-        window.setTimeout(() => {
-          window.close();
-        }, 300);
+        requestClose('Selection saved. Installation continues ...', true);
       } catch (error) {
         setMessage(error.message, 'error');
         button.disabled = false;
@@ -517,6 +557,36 @@ HTML_PAGE = """<!DOCTYPE html>
     document.getElementById('submit-button').addEventListener('click', submitSelection);
     init().catch((error) => setMessage(error.message, 'error'));
   </script>
+</body>
+</html>
+"""
+
+
+ERROR_HTML_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robot Mindset Linux Installer Error</title>
+  <style>
+    body { margin: 0; font-family: Inter, Arial, sans-serif; background: #0f172a; color: #f8fafc; }
+    .page { max-width: 960px; margin: 0 auto; padding: 32px; }
+    .panel { background: rgba(17,24,39,0.92); border: 1px solid #334155; border-radius: 18px; padding: 24px; }
+    h1 { margin: 0 0 12px; font-size: 28px; }
+    p { color: #cbd5e1; line-height: 1.5; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 16px; overflow: auto; color: #fca5a5; }
+    .status { margin-top: 16px; color: #fed7aa; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="panel">
+      <h1>Installer Error</h1>
+      <p>The installer UI could not continue. Review the message below. The terminal log is still written to <code>/var/log/installer</code>.</p>
+      <pre>{message}</pre>
+      <div class="status">This page will close automatically after {timeout_seconds} seconds and the installer will stop.</div>
+    </div>
+  </div>
 </body>
 </html>
 """
@@ -600,16 +670,25 @@ class InstallerRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == '/':
-            self._send_html(HTML_PAGE)
+            if getattr(self.server, 'error_message', None):
+                self._send_html(ERROR_HTML_PAGE.format(
+                    message=html.escape(self.server.error_message),
+                    timeout_seconds=self.server.timeout_seconds,
+                ))
+            else:
+                self._send_html(HTML_PAGE)
             return
         if parsed.path == '/api/state':
-            self._send_json(self.server.ui_state.api_state())
+            if getattr(self.server, 'error_message', None):
+                self._send_json({'error': self.server.error_message, 'timeout_seconds': self.server.timeout_seconds})
+            else:
+                self._send_json(self.server.ui_state.api_state())
             return
         self._send_json({'error': 'not found'}, status=HTTPStatus.NOT_FOUND)
 
     def do_POST(self):
         parsed = urlparse(self.path)
-        if parsed.path != '/api/submit':
+        if parsed.path != '/api/submit' or getattr(self.server, 'error_message', None):
             self._send_json({'error': 'not found'}, status=HTTPStatus.NOT_FOUND)
             return
         content_length = int(self.headers.get('Content-Length', '0'))
@@ -620,13 +699,51 @@ class InstallerRequestHandler(BaseHTTPRequestHandler):
             self._send_json({'error': str(exc)}, status=HTTPStatus.BAD_REQUEST)
             return
         self._send_json({'status': 'ok'})
+        threading.Thread(target=terminate_browser_processes, daemon=True).start()
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
 
 class InstallerHTTPServer(ThreadingHTTPServer):
-    def __init__(self, server_address, ui_state):
+    def __init__(self, server_address, ui_state=None, error_message=None, timeout_seconds=DEFAULT_UI_TIMEOUT_SECONDS):
         super().__init__(server_address, InstallerRequestHandler)
         self.ui_state = ui_state
+        self.error_message = error_message
+        self.timeout_seconds = timeout_seconds
+
+
+def register_browser_process(process):
+    with BROWSER_PROCESSES_LOCK:
+        BROWSER_PROCESSES.append(process)
+
+
+def terminate_browser_processes():
+    with BROWSER_PROCESSES_LOCK:
+        processes = list(BROWSER_PROCESSES)
+        BROWSER_PROCESSES.clear()
+    for process in processes:
+        try:
+            pgid = os.getpgid(process.pid)
+        except ProcessLookupError:
+            continue
+        try:
+            os.killpg(pgid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except Exception as exc:
+            log(f'Could not terminate browser process group {pgid}: {exc}')
+    time.sleep(0.2)
+    for process in processes:
+        try:
+            pgid = os.getpgid(process.pid)
+        except ProcessLookupError:
+            continue
+        try:
+            if process.poll() is None:
+                os.killpg(pgid, signal.SIGKILL)
+        except ProcessLookupError:
+            continue
+        except Exception as exc:
+            log(f'Could not kill browser process group {pgid}: {exc}')
 
 
 def firefox_running(context):
@@ -640,6 +757,19 @@ def firefox_running(context):
 
 def build_firefox_reuse_command(url, executable='firefox'):
     return [executable, '--new-window', '--kiosk', url]
+
+
+def wait_for_ui_endpoint(url, timeout_seconds=10):
+    state_url = url.rstrip('/') + '/api/state'
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(state_url, timeout=1) as response:
+                if response.status == HTTPStatus.OK:
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            time.sleep(0.25)
+    return False
 
 
 def build_firefox_command(url, context, executable='firefox'):
@@ -690,7 +820,8 @@ def open_browser(url):
     elif shutil.which('firefox'):
         firefox_executable = shutil.which('firefox')
 
-    if firefox_executable and firefox_running(context):
+    firefox_is_running = bool(firefox_executable and firefox_running(context))
+    if firefox_executable:
         commands.append(build_firefox_reuse_command(url, firefox_executable))
 
     if shutil.which('chromium-browser'):
@@ -710,17 +841,35 @@ def open_browser(url):
     launch_user = context.get('user')
     runuser = shutil.which('runuser')
 
+    if not wait_for_ui_endpoint(url):
+        log(f'Installer UI endpoint did not become ready before browser launch: {url}')
+        return False
+
     time.sleep(1)
     for command in commands:
         launch_command = command
         if launch_user and os.geteuid() == 0 and runuser:
             launch_command = [runuser, '-u', launch_user, '--'] + command
         try:
-            subprocess.Popen(launch_command, env=launch_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(launch_command, env=launch_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            time.sleep(2)
+            return_code = process.poll()
+            endpoint_ready = wait_for_ui_endpoint(url, timeout_seconds=2)
+            if return_code not in (None, 0):
+                log(f"Browser command exited early with code {return_code}: {' '.join(launch_command)}")
+                continue
+            if return_code is None:
+                register_browser_process(process)
+            launch_state = 'still running' if return_code is None else 'returned immediately after hand-off'
+            endpoint_state = 'reachable' if endpoint_ready else 'not reachable'
+            command_text = ' '.join(launch_command)
             log(
-                f"Opened installer UI using: {' '.join(launch_command)} "
-                f"with env DISPLAY={launch_env.get('DISPLAY', '')} WAYLAND_DISPLAY={launch_env.get('WAYLAND_DISPLAY', '')}"
+                f"Opened installer UI using: {command_text} "
+                f"with env DISPLAY={launch_env.get('DISPLAY', '')} WAYLAND_DISPLAY={launch_env.get('WAYLAND_DISPLAY', '')}; "
+                f"command {launch_state}; endpoint {endpoint_state}"
             )
+            if not endpoint_ready:
+                log(f'Installer UI browser launch may not have attached correctly for command: {command_text}')
             return True
         except Exception as exc:
             log(f"Could not start browser command {' '.join(launch_command)}: {exc}")
@@ -741,6 +890,14 @@ def write_default_selection(ui_state):
     log(f'Wrote non-interactive default selection to {ui_state.selection_path}')
 
 
+def shutdown_error_server_after_timeout(server, timeout_seconds):
+    if timeout_seconds <= 0:
+        return
+    time.sleep(timeout_seconds)
+    terminate_browser_processes()
+    threading.Thread(target=server.shutdown, daemon=True).start()
+
+
 def shutdown_after_timeout(server, ui_state, timeout_seconds):
     if timeout_seconds <= 0:
         return
@@ -749,6 +906,7 @@ def shutdown_after_timeout(server, ui_state, timeout_seconds):
         return
     log(f'Installer UI timed out after {timeout_seconds}s; falling back to default selection')
     write_default_selection(ui_state)
+    terminate_browser_processes()
     threading.Thread(target=server.shutdown, daemon=True).start()
 
 
@@ -761,14 +919,30 @@ def main():
     parser.add_argument('--timeout', type=int, default=DEFAULT_UI_TIMEOUT_SECONDS)
     args = parser.parse_args()
 
-    ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file), args.timeout)
+    url = f'http://{args.host}:{args.port}'
+    try:
+        ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file), args.timeout)
+    except Exception:
+        error_message = traceback.format_exc()
+        log('Installer UI initialization failed; serving error page to the browser')
+        log(error_message)
+        if not has_gui_session():
+            raise
+        server = InstallerHTTPServer((args.host, args.port), error_message=error_message, timeout_seconds=args.timeout)
+        browser_thread = threading.Thread(target=open_browser, args=(url,), daemon=True)
+        browser_thread.start()
+        timeout_thread = threading.Thread(target=shutdown_error_server_after_timeout, args=(server, args.timeout), daemon=True)
+        timeout_thread.start()
+        log(f'Installer UI error page listening on {url}')
+        server.serve_forever()
+        server.server_close()
+        raise RuntimeError(error_message)
 
     if not has_gui_session():
         write_default_selection(ui_state)
         return
 
-    url = f'http://{args.host}:{args.port}'
-    server = InstallerHTTPServer((args.host, args.port), ui_state)
+    server = InstallerHTTPServer((args.host, args.port), ui_state=ui_state, timeout_seconds=args.timeout)
     browser_thread = threading.Thread(target=open_browser, args=(url,), daemon=True)
     browser_thread.start()
     timeout_thread = threading.Thread(target=shutdown_after_timeout, args=(server, ui_state, args.timeout), daemon=True)

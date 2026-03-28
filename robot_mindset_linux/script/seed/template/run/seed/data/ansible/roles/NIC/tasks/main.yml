@@ -13,6 +13,18 @@
             dhcp4: false
             addresses:
               - {{ ipv4 }}
+      {% if gateway4 is defined and gateway4 %}
+            routes:
+              - to: default
+                via: {{ gateway4 }}
+      {% endif %}
+      {% if nameservers is defined and nameservers %}
+            nameservers:
+              addresses:
+      {% for nameserver in nameservers %}
+                - {{ nameserver }}
+      {% endfor %}
+      {% endif %}
       {% else %}
             dhcp4: true
       {% endif %}

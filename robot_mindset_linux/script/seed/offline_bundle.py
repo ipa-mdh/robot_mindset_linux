@@ -20,6 +20,8 @@ from loguru import logger
 MANIFEST_PATH = Path(__file__).resolve().parent / 'offline' / 'manifest.yaml'
 DEFAULT_CACHE_ROOT = Path(os.environ.get('ROBOT_MINDSET_OFFLINE_CACHE_DIR', '/tmp/robot_mindset_linux_offline_cache'))
 APT_LIST_MAX_AGE_SECONDS = 24 * 60 * 60
+BUNDLE_FORMAT_VERSION = 2
+
 UBUNTU_RELEASES = {
     '20.04': 'focal',
     '22.04': 'jammy',
@@ -132,6 +134,7 @@ def _files_fingerprint(paths: Iterable[Path]) -> str:
 
 def _bundle_signature(manifest: dict, context: dict, packages: list[str], direct_debs: list[Path], archive_dir: Path, realtime_files: list[Path]) -> str:
     payload = {
+        'bundle_format_version': BUNDLE_FORMAT_VERSION,
         'image': context.get('image'),
         'ubuntu_release': _target_ubuntu_release(context),
         'packages': packages,
@@ -158,6 +161,9 @@ def _apt_base_args(state_dir: Path, archive_dir: Path, sources_list: Path) -> li
         '-o', 'APT::Get::List-Cleanup=0',
         '-o', 'Debug::NoLocking=true',
         '-o', 'APT::Architecture=amd64',
+        '-o', 'Acquire::AllowInsecureRepositories=true',
+        '-o', 'Acquire::AllowDowngradeToInsecureRepositories=true',
+        '-o', 'APT::Get::AllowUnauthenticated=true',
     ]
 
 
@@ -174,6 +180,55 @@ def _write_ubuntu_sources_list(destination: Path, context: dict) -> str:
         ])
     )
     return release
+
+
+def _package_candidate(package: str, apt_base_args: list[str]) -> str:
+    result = subprocess.run(
+        ['apt-cache', *apt_base_args, 'policy', package],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    for line in result.stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith('Candidate:'):
+            return stripped.split(':', 1)[1].strip()
+    return '(none)'
+
+
+def _validate_packages_available(packages: list[str], apt_base_args: list[str], release: str) -> None:
+    missing = []
+    for package in packages:
+        candidate = _package_candidate(package, apt_base_args)
+        if candidate in {'', '(none)'}:
+            missing.append(package)
+    if missing:
+        raise RuntimeError(
+            f'offline bundle packages unavailable for Ubuntu {release}: ' + ', '.join(missing)
+        )
+
+
+def _validate_direct_debs(direct_debs: list[Path]) -> None:
+    invalid = []
+    for deb in direct_debs:
+        result = subprocess.run(
+            ['dpkg-deb', '--field', str(deb), 'Package', 'Architecture'],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        metadata = {}
+        for line in result.stdout.splitlines():
+            if ':' not in line:
+                continue
+            key, value = line.split(':', 1)
+            metadata[key.strip()] = value.strip()
+        package_name = metadata.get('Package', deb.name)
+        architecture = metadata.get('Architecture', '')
+        if architecture not in {'amd64', 'all'}:
+            invalid.append(f'{package_name} ({architecture or "unknown"})')
+    if invalid:
+        raise RuntimeError('offline bundle direct debs have unsupported architectures: ' + ', '.join(invalid))
 
 
 def _lists_stamp_path(state_dir: Path) -> Path:
@@ -243,6 +298,7 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
         destination = direct_dir / item['filename']
         _download(item['url'], destination)
         direct_debs.append(destination)
+    _validate_direct_debs(direct_debs)
 
     linux_kernel = context.get('linux_kernel', {})
     realtime = linux_kernel.get('realtime', {}) if isinstance(linux_kernel, dict) else {}
@@ -280,6 +336,7 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
             _mark_package_lists_refreshed(apt_state_dir)
         else:
             logger.info('Reusing cached Ubuntu package lists from {}', apt_state_dir)
+        _validate_packages_available(packages, apt_base_args, release)
         _run(command)
 
     bundle_signature = _bundle_signature(manifest, context, packages, direct_debs, archive_dir, realtime_files)

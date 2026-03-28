@@ -100,15 +100,29 @@ def copy_paths(data, destination):
         else:
             logger.error(f"Source '{source}' does not exist.")
 
-def archive_seed_data(seed_data_dir: Path) -> Path:
-    """Archive the rendered seed data folder into a single tarball and remove the raw tree."""
+def archive_seed_payloads(seed_data_dir: Path) -> tuple[Path, Path]:
+    """Archive the rendered seed data folder into separate early and target payloads."""
     seed_data_dir = Path(seed_data_dir)
-    archive_path = seed_data_dir.parent / 'data.tar'
-    archive_path.unlink(missing_ok=True)
-    with tarfile.open(archive_path, 'w') as tar:
+    seed_dir = seed_data_dir.parent
+    early_archive_path = seed_dir / 'early-data.tar'
+    target_archive_path = seed_dir / 'target-data.tar'
+    legacy_archive_path = seed_dir / 'data.tar'
+    autoinstall_dir = seed_data_dir / 'autoinstall'
+
+    if not autoinstall_dir.is_dir():
+        raise FileNotFoundError(f"autoinstall payload not found in {seed_data_dir}")
+
+    legacy_archive_path.unlink(missing_ok=True)
+    early_archive_path.unlink(missing_ok=True)
+    with tarfile.open(early_archive_path, 'w') as tar:
+        tar.add(autoinstall_dir, arcname='data/autoinstall', recursive=True)
+
+    target_archive_path.unlink(missing_ok=True)
+    with tarfile.open(target_archive_path, 'w') as tar:
         tar.add(seed_data_dir, arcname='data', recursive=True)
+
     shutil.rmtree(seed_data_dir)
-    return archive_path
+    return early_archive_path, target_archive_path
 
 def get_context(base_context_path=Path("config/base_context.yaml"),
          context_path=Path("config/context.yaml")):
@@ -150,7 +164,7 @@ def main(base_context: dict,
 
     copy_paths(context.get("data", {}), output_dir/"seed/data")
     prepare_offline_bundle(seed_data_dir=output_dir/"seed/data", context=context)
-    archive_seed_data(output_dir/"seed/data")
+    archive_seed_payloads(output_dir/"seed/data")
 
     rv = create_seed_iso(seed_dir=output_dir/"seed",
                     output_dir=output_dir)
