@@ -36,13 +36,6 @@ disable_welcome_message() {
     chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/.config"
 }
 
-disable_gnome_initial_setup_service() {
-    echo "disable gnome-initial-setup systemd user service"
-
-    install -d -m 755 /etc/systemd/user
-    ln -sf /dev/null /etc/systemd/user/gnome-initial-setup-first-login.service
-}
-
 setup_network_manager() {
     echo "config network manager"
     DEST=/etc/polkit-1/localauthority/50-local.d
@@ -77,6 +70,5 @@ configure_ssh() {
 
 setup_sudoers
 disable_welcome_message
-disable_gnome_initial_setup_service
 setup_network_manager
 configure_ssh
