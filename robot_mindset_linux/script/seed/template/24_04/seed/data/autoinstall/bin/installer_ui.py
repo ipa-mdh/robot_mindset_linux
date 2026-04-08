@@ -7,6 +7,7 @@ import os
 import pwd
 import shutil
 import signal
+import site
 import stat
 import subprocess
 import sys
@@ -24,9 +25,7 @@ DEFAULT_PORT = 8123
 DEFAULT_UI_TIMEOUT_SECONDS = 300
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_REQUIREMENTS_PATH = RUNTIME_ROOT / 'requirements-installer-ui.txt'
-RUNTIME_WHEELHOUSE_PATH = RUNTIME_ROOT / 'wheelhouse'
-RUNTIME_VENV_PATH = Path('/autoinstall-working/robot_mindset_installer_ui_venv')
-RUNTIME_READY_MARKER = RUNTIME_VENV_PATH / '.ready'
+RUNTIME_SITE_PACKAGES_PATH = RUNTIME_ROOT / 'installer-ui-site-packages'
 
 BROWSER_PROCESSES = []
 BROWSER_PROCESSES_LOCK = threading.Lock()
@@ -284,35 +283,13 @@ def open_browser(url):
 
 
 def ensure_installer_runtime():
-    if Path(sys.executable).resolve().is_relative_to(RUNTIME_VENV_PATH):
+    if not RUNTIME_SITE_PACKAGES_PATH.is_dir():
+        raise RuntimeError(f'Missing installer runtime site-packages: {RUNTIME_SITE_PACKAGES_PATH}')
+    if str(RUNTIME_SITE_PACKAGES_PATH) in sys.path:
         return
     if not RUNTIME_REQUIREMENTS_PATH.exists():
-        raise RuntimeError(f'Missing installer runtime requirements: {RUNTIME_REQUIREMENTS_PATH}')
-    if not RUNTIME_WHEELHOUSE_PATH.is_dir():
-        raise RuntimeError(f'Missing installer runtime wheelhouse: {RUNTIME_WHEELHOUSE_PATH}')
-
-    venv_python = RUNTIME_VENV_PATH / 'bin/python'
-    if not venv_python.exists():
-        subprocess.run([sys.executable, '-m', 'venv', str(RUNTIME_VENV_PATH)], check=True)
-
-    if not RUNTIME_READY_MARKER.exists():
-        subprocess.run(
-            [
-                str(venv_python),
-                '-m',
-                'pip',
-                'install',
-                '--no-index',
-                f'--find-links={RUNTIME_WHEELHOUSE_PATH}',
-                '-r',
-                str(RUNTIME_REQUIREMENTS_PATH),
-            ],
-            check=True,
-        )
-        RUNTIME_READY_MARKER.write_text('ready\n', encoding='utf-8')
-
-    env = os.environ.copy()
-    os.execve(str(venv_python), [str(venv_python), __file__, *sys.argv[1:]], env)
+        log(f'Installer runtime requirements file is missing: {RUNTIME_REQUIREMENTS_PATH}')
+    site.addsitedir(str(RUNTIME_SITE_PACKAGES_PATH))
 
 
 def extract_network_entries(autoinstall_path):

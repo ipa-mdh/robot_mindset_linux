@@ -190,37 +190,43 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
 
 
 class InstallerUiBundleTests(unittest.TestCase):
-    def test_prepare_installer_ui_bundle_downloads_wheels_and_copies_requirements(self):
+    def test_prepare_installer_ui_bundle_installs_site_packages_and_copies_requirements(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             autoinstall_dir = Path(tmpdir) / 'autoinstall'
             requirements_path = Path(tmpdir) / 'requirements.txt'
             requirements_path.write_text('nicegui==1.4.26\n', encoding='utf-8')
             with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path):
                 with mock.patch.object(installer_ui_bundle.subprocess, 'run') as run_mock:
-                    wheelhouse_dir = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir)
+                    runtime_dir = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir)
             self.assertTrue((autoinstall_dir / installer_ui_bundle.RUNTIME_REQUIREMENTS_FILENAME).exists())
-            self.assertTrue(wheelhouse_dir.exists())
+            self.assertTrue(runtime_dir.exists())
             command = run_mock.call_args.args[0]
-            self.assertEqual(command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
+            self.assertEqual(command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
+            self.assertIn('--target', command)
+            self.assertIn(str(runtime_dir), command)
             self.assertIn('--only-binary=:all:', command)
+            self.assertIn('--no-compile', command)
 
-    def test_ensure_installer_runtime_uses_offline_install_flags(self):
+    def test_ensure_installer_runtime_adds_bundled_site_packages(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             requirements = tmp / 'requirements.txt'
-            wheelhouse = tmp / 'wheelhouse'
-            venv = tmp / 'venv'
+            runtime_site_packages = tmp / 'site-packages'
             requirements.write_text('nicegui==1.4.26\n', encoding='utf-8')
-            wheelhouse.mkdir()
-            venv.mkdir()
-            with mock.patch.object(installer_ui, 'RUNTIME_REQUIREMENTS_PATH', requirements),                  mock.patch.object(installer_ui, 'RUNTIME_WHEELHOUSE_PATH', wheelhouse),                  mock.patch.object(installer_ui, 'RUNTIME_VENV_PATH', venv),                  mock.patch.object(installer_ui, 'RUNTIME_READY_MARKER', venv / '.ready'),                  mock.patch.object(installer_ui.subprocess, 'run') as run_mock,                  mock.patch.object(installer_ui.os, 'execve', side_effect=SystemExit(0)) as exec_mock:
-                with self.assertRaises(SystemExit):
+            runtime_site_packages.mkdir()
+            with mock.patch.object(installer_ui, 'RUNTIME_REQUIREMENTS_PATH', requirements), \
+                 mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_PATH', runtime_site_packages), \
+                 mock.patch.object(installer_ui.site, 'addsitedir') as addsitedir_mock:
+                installer_ui.ensure_installer_runtime()
+            addsitedir_mock.assert_called_once_with(str(runtime_site_packages))
+
+    def test_ensure_installer_runtime_requires_bundled_site_packages(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            missing_runtime_site_packages = tmp / 'missing-site-packages'
+            with mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_PATH', missing_runtime_site_packages):
+                with self.assertRaises(RuntimeError):
                     installer_ui.ensure_installer_runtime()
-            commands = [call.args[0] for call in run_mock.call_args_list]
-            self.assertEqual(commands[0][:3], [installer_ui.sys.executable, '-m', 'venv'])
-            self.assertIn('--no-index', commands[1])
-            self.assertTrue(any(str(wheelhouse) in part for part in commands[1]))
-            exec_mock.assert_called_once()
 
 
 if __name__ == '__main__':
