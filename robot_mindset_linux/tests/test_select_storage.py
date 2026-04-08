@@ -191,53 +191,32 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
 
 
 class InstallerUiBundleTests(unittest.TestCase):
-    def test_target_python_version_uses_selected_environment(self):
-        self.assertEqual(installer_ui_bundle._target_python_version({'environment': '22.04'}), '3.10')
-        self.assertEqual(installer_ui_bundle._target_python_version({'ubuntu_release': 'noble'}), '3.12')
-
-    def test_prepare_installer_ui_bundle_downloads_to_cache_and_installs_offline(self):
+    def test_prepare_installer_ui_bundle_downloads_all_supported_runtimes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             autoinstall_dir = tmp / 'autoinstall'
             cache_dir = tmp / 'cache'
             requirements_path = tmp / 'requirements.txt'
             requirements_path.write_text('nicegui==1.4.26\n', encoding='utf-8')
-            context = {'environment': '22.04', 'ubuntu_release': 'jammy'}
-            with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path):
+            with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path),                  mock.patch.object(installer_ui_bundle, 'SUPPORTED_TARGET_PYTHONS', ('3.10', '3.12')):
                 with mock.patch.object(installer_ui_bundle.subprocess, 'run') as run_mock:
-                    runtime_dir = installer_ui_bundle.prepare_installer_ui_bundle(
-                        autoinstall_dir,
-                        context=context,
-                        cache_dir=cache_dir,
-                    )
+                    runtime_root = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir, cache_dir=cache_dir)
             self.assertTrue((autoinstall_dir / installer_ui_bundle.RUNTIME_REQUIREMENTS_FILENAME).exists())
-            self.assertTrue(runtime_dir.exists())
-            self.assertEqual(run_mock.call_count, 2)
-            download_command = run_mock.call_args_list[0].args[0]
-            install_command = run_mock.call_args_list[1].args[0]
-            self.assertEqual(download_command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
-            self.assertIn('--isolated', download_command)
-            self.assertIn('--platform', download_command)
-            self.assertIn(installer_ui_bundle.TARGET_PLATFORM, download_command)
-            self.assertIn('--python-version', download_command)
-            self.assertIn('310', download_command)
-            self.assertIn('--abi', download_command)
-            self.assertIn('cp310', download_command)
-            self.assertIn('--dest', download_command)
-            self.assertIn(str(cache_dir / installer_ui_bundle.WHEELHOUSE_DIRNAME), download_command)
-            self.assertEqual(install_command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
-            self.assertIn('--isolated', install_command)
-            self.assertIn('--platform', install_command)
-            self.assertIn(installer_ui_bundle.TARGET_PLATFORM, install_command)
-            self.assertIn('--python-version', install_command)
-            self.assertIn('310', install_command)
-            self.assertIn('--abi', install_command)
-            self.assertIn('cp310', install_command)
-            self.assertIn('--ignore-installed', install_command)
-            self.assertIn('--no-index', install_command)
-            self.assertTrue(any(str(cache_dir / installer_ui_bundle.WHEELHOUSE_DIRNAME) in part for part in install_command))
-            self.assertIn('--target', install_command)
-            self.assertIn(str(runtime_dir), install_command)
+            self.assertTrue(runtime_root.exists())
+            self.assertTrue((runtime_root / 'cp310').exists())
+            self.assertTrue((runtime_root / 'cp312').exists())
+            self.assertEqual(run_mock.call_count, 4)
+            commands = [call.args[0] for call in run_mock.call_args_list]
+            self.assertEqual(commands[0][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
+            self.assertEqual(commands[1][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
+            self.assertEqual(commands[2][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
+            self.assertEqual(commands[3][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
+            self.assertIn('310', commands[0])
+            self.assertIn('cp310', commands[0])
+            self.assertIn('312', commands[2])
+            self.assertIn('cp312', commands[2])
+            self.assertTrue(any(str(cache_dir / 'cp310' / installer_ui_bundle.WHEELHOUSE_DIRNAME) in part for part in commands[1]))
+            self.assertTrue(any(str(cache_dir / 'cp312' / installer_ui_bundle.WHEELHOUSE_DIRNAME) in part for part in commands[3]))
             self.assertEqual(run_mock.call_args.kwargs['env']['PYTHONNOUSERSITE'], '1')
             self.assertEqual(run_mock.call_args.kwargs['env']['PIP_DISABLE_PIP_VERSION_CHECK'], '1')
             self.assertEqual(run_mock.call_args.kwargs['env']['PIP_NO_INPUT'], '1')
@@ -249,8 +228,7 @@ class InstallerUiBundleTests(unittest.TestCase):
             cache_dir = tmp / 'cache'
             requirements_path = tmp / 'requirements.txt'
             requirements_path.write_text('nicegui==1.4.26\n', encoding='utf-8')
-            context = {'environment': '22.04', 'ubuntu_release': 'jammy'}
-            archive_path = cache_dir / installer_ui_bundle.RUNTIME_ARCHIVE_FILENAME
+            archive_path = cache_dir / 'cp310' / installer_ui_bundle.RUNTIME_ARCHIVE_FILENAME
             archive_path.parent.mkdir(parents=True, exist_ok=True)
             sample_root = tmp / 'sample-runtime'
             sample_file = sample_root / 'typing_extensions.py'
@@ -259,15 +237,18 @@ class InstallerUiBundleTests(unittest.TestCase):
             with tarfile.open(archive_path, 'w') as tar:
                 tar.add(sample_file, arcname='typing_extensions.py')
 
-            with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path):
+            with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path),                  mock.patch.object(installer_ui_bundle, 'SUPPORTED_TARGET_PYTHONS', ('3.10',)):
                 with mock.patch.object(installer_ui_bundle.subprocess, 'run') as run_mock:
-                    runtime_dir = installer_ui_bundle.prepare_installer_ui_bundle(
-                        autoinstall_dir,
-                        context=context,
-                        cache_dir=cache_dir,
-                    )
+                    runtime_root = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir, cache_dir=cache_dir)
             self.assertEqual(run_mock.call_count, 0)
-            self.assertTrue((runtime_dir / 'typing_extensions.py').exists())
+            self.assertTrue((runtime_root / 'cp310' / 'typing_extensions.py').exists())
+
+    def test_runtime_site_packages_path_uses_current_interpreter_tag(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / 'runtimes'
+            with mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_ROOT', runtime_root):
+                path = installer_ui.runtime_site_packages_path()
+        self.assertEqual(path, runtime_root / f"cp{installer_ui.sys.version_info.major}{installer_ui.sys.version_info.minor}")
 
     def test_ensure_installer_runtime_prioritizes_bundled_site_packages(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -281,7 +262,7 @@ class InstallerUiBundleTests(unittest.TestCase):
             def fake_addsitedir(path: str):
                 installer_ui.sys.path.append(path)
 
-            with mock.patch.object(installer_ui, 'RUNTIME_REQUIREMENTS_PATH', requirements),                  mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_PATH', runtime_site_packages),                  mock.patch.object(installer_ui.site, 'addsitedir', side_effect=fake_addsitedir) as addsitedir_mock:
+            with mock.patch.object(installer_ui, 'RUNTIME_REQUIREMENTS_PATH', requirements),                  mock.patch.object(installer_ui, 'runtime_site_packages_path', return_value=runtime_site_packages),                  mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_ROOT', tmp / 'runtime-root'),                  mock.patch.object(installer_ui.site, 'addsitedir', side_effect=fake_addsitedir) as addsitedir_mock:
                 installer_ui.sys.path[:] = ['/usr/lib/python3/dist-packages', '/snap/system']
                 installer_ui.ensure_installer_runtime()
                 self.assertEqual(installer_ui.sys.path[0], str(runtime_site_packages))
@@ -293,7 +274,7 @@ class InstallerUiBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             missing_runtime_site_packages = tmp / 'missing-site-packages'
-            with mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_PATH', missing_runtime_site_packages):
+            with mock.patch.object(installer_ui, 'runtime_site_packages_path', return_value=missing_runtime_site_packages),                  mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_ROOT', tmp / 'runtime-root'):
                 with self.assertRaises(RuntimeError):
                     installer_ui.ensure_installer_runtime()
 

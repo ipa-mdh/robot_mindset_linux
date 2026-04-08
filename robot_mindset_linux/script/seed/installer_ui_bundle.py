@@ -20,29 +20,8 @@ WHEELHOUSE_DIRNAME = 'wheelhouse'
 RUNTIME_ARCHIVE_FILENAME = 'installer-ui-site-packages.tar'
 TARGET_PLATFORM = 'manylinux2014_x86_64'
 TARGET_IMPLEMENTATION = 'cp'
-TARGET_PYTHON_BY_ENVIRONMENT = {
-    '20.04': '3.8',
-    '22.04': '3.10',
-    '24.04': '3.12',
-}
-TARGET_PYTHON_BY_RELEASE = {
-    'focal': '3.8',
-    'jammy': '3.10',
-    'noble': '3.12',
-}
-
-
-def _target_python_version(context: dict | None) -> str:
-    if context:
-        ubuntu_release = str(context.get('ubuntu_release') or '').strip()
-        if ubuntu_release in TARGET_PYTHON_BY_RELEASE:
-            return TARGET_PYTHON_BY_RELEASE[ubuntu_release]
-
-        environment = str(context.get('environment') or '').strip()
-        if environment in TARGET_PYTHON_BY_ENVIRONMENT:
-            return TARGET_PYTHON_BY_ENVIRONMENT[environment]
-
-    return f'{sys.version_info.major}.{sys.version_info.minor}'
+SUPPORTED_TARGET_PYTHONS = ('3.8', '3.10', '3.12')
+BUNDLE_FORMAT_VERSION = 2
 
 
 def _python_abi_tag(version: str) -> str:
@@ -55,22 +34,26 @@ def _python_version_digits(version: str) -> str:
     return f'{major}{minor}'
 
 
-def _bundle_signature(context: dict | None) -> str:
-    target_python = _target_python_version(context)
+def _runtime_subdir_name(version: str) -> str:
+    return _python_abi_tag(version)
+
+
+def _bundle_signature(version: str) -> str:
     payload = {
+        'bundle_format_version': BUNDLE_FORMAT_VERSION,
         'requirements': REQUIREMENTS_PATH.read_text(encoding='utf-8'),
-        'target_python': target_python,
-        'target_abi': _python_abi_tag(target_python),
+        'target_python': version,
+        'target_abi': _python_abi_tag(version),
         'platform': TARGET_PLATFORM,
         'implementation': TARGET_IMPLEMENTATION,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode('utf-8')).hexdigest()
 
 
-def _resolve_cache_dir(context: dict | None, cache_dir: Path | None) -> Path:
+def _resolve_cache_dir(version: str, cache_dir: Path | None) -> Path:
     if cache_dir is not None:
-        return Path(cache_dir)
-    return DEFAULT_CACHE_ROOT / _bundle_signature(context)
+        return Path(cache_dir) / _runtime_subdir_name(version)
+    return DEFAULT_CACHE_ROOT / _bundle_signature(version)
 
 
 def _build_pip_env() -> dict[str, str]:
@@ -95,45 +78,34 @@ def _extract_runtime(archive_path: Path, runtime_site_packages_dir: Path) -> Non
         tar.extractall(runtime_site_packages_dir)
 
 
-def _pip_target_args(context: dict | None) -> list[str]:
-    target_python = _target_python_version(context)
+def _pip_target_args(version: str) -> list[str]:
     return [
         '--platform', TARGET_PLATFORM,
         '--implementation', TARGET_IMPLEMENTATION,
-        '--python-version', _python_version_digits(target_python),
-        '--abi', _python_abi_tag(target_python),
+        '--python-version', _python_version_digits(version),
+        '--abi', _python_abi_tag(version),
     ]
 
 
-def prepare_installer_ui_bundle(
-    autoinstall_dir: Path,
-    context: dict | None = None,
-    cache_dir: Path | None = None,
-) -> Path:
-    """Pre-install the offline Python runtime for the installer NiceGUI UI."""
-    autoinstall_dir = Path(autoinstall_dir)
-    if not REQUIREMENTS_PATH.exists():
-        raise FileNotFoundError(f'Installer UI requirements file not found: {REQUIREMENTS_PATH}')
-
-    autoinstall_dir.mkdir(parents=True, exist_ok=True)
-    runtime_requirements_path = autoinstall_dir / RUNTIME_REQUIREMENTS_FILENAME
-    runtime_site_packages_dir = autoinstall_dir / RUNTIME_SITE_PACKAGES_DIRNAME
-    resolved_cache_dir = _resolve_cache_dir(context, cache_dir)
+def _prepare_runtime_for_version(
+    runtime_root: Path,
+    version: str,
+    cache_dir: Path | None,
+    pip_env: dict[str, str],
+) -> None:
+    runtime_site_packages_dir = runtime_root / _runtime_subdir_name(version)
+    resolved_cache_dir = _resolve_cache_dir(version, cache_dir)
     wheelhouse_dir = resolved_cache_dir / WHEELHOUSE_DIRNAME
     runtime_archive_path = resolved_cache_dir / RUNTIME_ARCHIVE_FILENAME
-    target_args = _pip_target_args(context)
-
-    runtime_requirements_path.write_text(REQUIREMENTS_PATH.read_text(encoding='utf-8'), encoding='utf-8')
+    target_args = _pip_target_args(version)
 
     if runtime_archive_path.exists():
         _extract_runtime(runtime_archive_path, runtime_site_packages_dir)
-        return runtime_site_packages_dir
+        return
 
     shutil.rmtree(runtime_site_packages_dir, ignore_errors=True)
     runtime_site_packages_dir.mkdir(parents=True, exist_ok=True)
     wheelhouse_dir.mkdir(parents=True, exist_ok=True)
-
-    pip_env = _build_pip_env()
 
     subprocess.run(
         [
@@ -176,4 +148,28 @@ def prepare_installer_ui_bundle(
         check=True,
     )
     _archive_runtime(runtime_site_packages_dir, runtime_archive_path)
-    return runtime_site_packages_dir
+
+
+def prepare_installer_ui_bundle(
+    autoinstall_dir: Path,
+    context: dict | None = None,
+    cache_dir: Path | None = None,
+) -> Path:
+    """Pre-install the offline Python runtimes for the installer NiceGUI UI."""
+    autoinstall_dir = Path(autoinstall_dir)
+    if not REQUIREMENTS_PATH.exists():
+        raise FileNotFoundError(f'Installer UI requirements file not found: {REQUIREMENTS_PATH}')
+
+    autoinstall_dir.mkdir(parents=True, exist_ok=True)
+    runtime_requirements_path = autoinstall_dir / RUNTIME_REQUIREMENTS_FILENAME
+    runtime_root = autoinstall_dir / RUNTIME_SITE_PACKAGES_DIRNAME
+    runtime_requirements_path.write_text(REQUIREMENTS_PATH.read_text(encoding='utf-8'), encoding='utf-8')
+
+    shutil.rmtree(runtime_root, ignore_errors=True)
+    runtime_root.mkdir(parents=True, exist_ok=True)
+    pip_env = _build_pip_env()
+
+    for version in SUPPORTED_TARGET_PYTHONS:
+        _prepare_runtime_for_version(runtime_root, version, cache_dir, pip_env)
+
+    return runtime_root

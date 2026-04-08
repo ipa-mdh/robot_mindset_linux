@@ -25,7 +25,7 @@ DEFAULT_PORT = 8123
 DEFAULT_UI_TIMEOUT_SECONDS = 300
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_REQUIREMENTS_PATH = RUNTIME_ROOT / 'requirements-installer-ui.txt'
-RUNTIME_SITE_PACKAGES_PATH = RUNTIME_ROOT / 'installer-ui-site-packages'
+RUNTIME_SITE_PACKAGES_ROOT = RUNTIME_ROOT / 'installer-ui-site-packages'
 
 BROWSER_PROCESSES = []
 BROWSER_PROCESSES_LOCK = threading.Lock()
@@ -282,13 +282,26 @@ def open_browser(url):
     return False
 
 
+def runtime_site_packages_path() -> Path:
+    runtime_tag = f'cp{sys.version_info.major}{sys.version_info.minor}'
+    return RUNTIME_SITE_PACKAGES_ROOT / runtime_tag
+
+
 def ensure_installer_runtime():
-    if not RUNTIME_SITE_PACKAGES_PATH.is_dir():
-        raise RuntimeError(f'Missing installer runtime site-packages: {RUNTIME_SITE_PACKAGES_PATH}')
+    runtime_site_packages_path_value = runtime_site_packages_path()
+    if not runtime_site_packages_path_value.is_dir():
+        available = []
+        if RUNTIME_SITE_PACKAGES_ROOT.is_dir():
+            available = sorted(path.name for path in RUNTIME_SITE_PACKAGES_ROOT.iterdir() if path.is_dir())
+        raise RuntimeError(
+            'Missing installer runtime site-packages for '
+            f"cp{sys.version_info.major}{sys.version_info.minor}: {runtime_site_packages_path_value}; "
+            f'available runtimes: {available}'
+        )
     if not RUNTIME_REQUIREMENTS_PATH.exists():
         log(f'Installer runtime requirements file is missing: {RUNTIME_REQUIREMENTS_PATH}')
 
-    runtime_site_packages = str(RUNTIME_SITE_PACKAGES_PATH)
+    runtime_site_packages = str(runtime_site_packages_path_value)
     previous_paths = tuple(sys.path)
     if runtime_site_packages in sys.path:
         sys.path.remove(runtime_site_packages)
