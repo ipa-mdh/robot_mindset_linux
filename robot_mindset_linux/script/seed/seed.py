@@ -1,4 +1,3 @@
-
 # python3 script/generate_autoinstall.py
 
 # bash script/build-seed-iso.sh
@@ -6,6 +5,7 @@ from copy import deepcopy
 from pathlib import Path
 import shutil
 import tarfile
+from typing import Callable
 from loguru import logger
 
 from utils.environment_targets import normalize_context_environment_model
@@ -14,6 +14,24 @@ from seed.render_all import Render
 from seed.geniso import create_seed_iso
 from seed.offline_bundle import prepare_offline_bundle
 from seed.installer_ui_bundle import prepare_installer_ui_bundle
+
+
+ProgressCallback = Callable[[str], None] | None
+BUILD_PROGRESS_STEPS = (
+    'Preparing output',
+    'Rendering seed files',
+    'Copying additional data',
+    'Preparing offline bundle',
+    'Bundling installer UI',
+    'Archiving payloads',
+    'Creating ISO',
+    'Finished',
+)
+
+
+def _report_progress(progress_callback: ProgressCallback, step: str) -> None:
+    if progress_callback is not None:
+        progress_callback(step)
 
 
 def find_and_merge_environment(base_context, context):
@@ -107,8 +125,10 @@ def get_context(base_context_path=Path('config/seed/context.yaml'),
 
 def main(base_context: dict,
          context: dict,
-         output_dir=Path('output')):
+         output_dir=Path('output'),
+         progress_callback: ProgressCallback = None):
     """Main function to generate the seed ISO."""
+    _report_progress(progress_callback, 'Preparing output')
     if not output_dir.exists():
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -118,14 +138,26 @@ def main(base_context: dict,
 
     logger.debug(context)
 
+    _report_progress(progress_callback, 'Rendering seed files')
     Render(destination=output_dir, context=context)
 
+    _report_progress(progress_callback, 'Copying additional data')
     copy_paths(context.get('data', {}), output_dir / 'seed/data')
+
+    _report_progress(progress_callback, 'Preparing offline bundle')
     prepare_offline_bundle(seed_data_dir=output_dir / 'seed/data', context=context)
+
+    _report_progress(progress_callback, 'Bundling installer UI')
     prepare_installer_ui_bundle(output_dir / 'seed/data/autoinstall')
+
+    _report_progress(progress_callback, 'Archiving payloads')
     archive_seed_payloads(output_dir / 'seed/data')
 
+    _report_progress(progress_callback, 'Creating ISO')
     rv = create_seed_iso(seed_dir=output_dir / 'seed', output_dir=output_dir)
+
+    if rv:
+        _report_progress(progress_callback, 'Finished')
 
     return rv
 
