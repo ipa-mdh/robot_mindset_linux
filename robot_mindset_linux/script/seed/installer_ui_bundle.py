@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -25,12 +26,19 @@ def prepare_installer_ui_bundle(autoinstall_dir: Path) -> Path:
     shutil.rmtree(runtime_site_packages_dir, ignore_errors=True)
     runtime_site_packages_dir.mkdir(parents=True, exist_ok=True)
 
+    pip_env = os.environ.copy()
+    pip_env['PYTHONNOUSERSITE'] = '1'
+    pip_env['PIP_DISABLE_PIP_VERSION_CHECK'] = '1'
+    pip_env['PIP_NO_INPUT'] = '1'
+
     subprocess.run(
         [
             sys.executable,
             '-m',
             'pip',
             'install',
+            '--isolated',
+            '--ignore-installed',
             '--target',
             str(runtime_site_packages_dir),
             '--requirement',
@@ -40,6 +48,7 @@ def prepare_installer_ui_bundle(autoinstall_dir: Path) -> Path:
             '--upgrade',
             '--no-warn-script-location',
         ],
+        env=pip_env,
         check=True,
     )
     return runtime_site_packages_dir

@@ -202,10 +202,15 @@ class InstallerUiBundleTests(unittest.TestCase):
             self.assertTrue(runtime_dir.exists())
             command = run_mock.call_args.args[0]
             self.assertEqual(command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
+            self.assertIn('--isolated', command)
+            self.assertIn('--ignore-installed', command)
             self.assertIn('--target', command)
             self.assertIn(str(runtime_dir), command)
             self.assertIn('--only-binary=:all:', command)
             self.assertIn('--no-compile', command)
+            self.assertEqual(run_mock.call_args.kwargs['env']['PYTHONNOUSERSITE'], '1')
+            self.assertEqual(run_mock.call_args.kwargs['env']['PIP_DISABLE_PIP_VERSION_CHECK'], '1')
+            self.assertEqual(run_mock.call_args.kwargs['env']['PIP_NO_INPUT'], '1')
 
     def test_ensure_installer_runtime_adds_bundled_site_packages(self):
         with tempfile.TemporaryDirectory() as tmpdir:
