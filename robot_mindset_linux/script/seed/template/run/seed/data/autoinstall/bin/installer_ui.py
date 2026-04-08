@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Interactive installer UI for storage selection and network presets."""
+# Interactive NiceGUI installer UI for Robot Mindset Linux.
 import argparse
+import crypt
 import json
 import os
 import pwd
@@ -8,25 +9,24 @@ import shutil
 import signal
 import stat
 import subprocess
-import threading
-import traceback
-import time
+import sys
 import tempfile
+import threading
+import time
 import urllib.error
 import urllib.request
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-import html
 from pathlib import Path
-from urllib.parse import urlparse
-
-import yaml
 
 import select_storage
 
 DEFAULT_SELECTION_PATH = Path('/autoinstall-working/robot_mindset_installer_selection.json')
 DEFAULT_PORT = 8123
 DEFAULT_UI_TIMEOUT_SECONDS = 300
+RUNTIME_ROOT = Path(__file__).resolve().parents[1]
+RUNTIME_REQUIREMENTS_PATH = RUNTIME_ROOT / 'requirements-installer-ui.txt'
+RUNTIME_WHEELHOUSE_PATH = RUNTIME_ROOT / 'wheelhouse'
+RUNTIME_VENV_PATH = Path('/autoinstall-working/robot_mindset_installer_ui_venv')
+RUNTIME_READY_MARKER = RUNTIME_VENV_PATH / '.ready'
 
 BROWSER_PROCESSES = []
 BROWSER_PROCESSES_LOCK = threading.Lock()
@@ -36,6 +36,10 @@ def log(message):
     print(f'[robot-mindset-ui] {message}', flush=True)
 
 
+def hash_password(password: str) -> str:
+    return crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
+
+
 def detect_x_display():
     x11_dir = Path('/tmp/.X11-unix')
     if not x11_dir.is_dir():
@@ -43,7 +47,7 @@ def detect_x_display():
     displays = sorted(path.name for path in x11_dir.iterdir() if path.name.startswith('X'))
     if not displays:
         return ''
-    return f":{displays[0][1:]}"
+    return f':{displays[0][1:]}'
 
 
 def discover_gui_context():
@@ -120,597 +124,6 @@ def build_launch_env(context_env):
     return launch_env
 
 
-def read_autoinstall(autoinstall_path):
-    path = Path(autoinstall_path)
-    if not path.exists():
-        raise RuntimeError(f'autoinstall file not found: {autoinstall_path}')
-    data = yaml.safe_load(path.read_text(encoding='utf-8')) or {}
-    return data.get('autoinstall', data)
-
-
-def extract_network_entries(autoinstall_path):
-    autoinstall = read_autoinstall(autoinstall_path)
-    network = autoinstall.get('network', {}) or {}
-    ethernets = network.get('ethernets', {}) or {}
-    entries = []
-    for name, config in ethernets.items():
-        routes = config.get('routes') or []
-        gateway = ''
-        for route in routes:
-            if route.get('to') == 'default' and route.get('via'):
-                gateway = route['via']
-                break
-        nameservers = config.get('nameservers', {}).get('addresses', []) or []
-        addresses = config.get('addresses', []) or []
-        entries.append({
-            'name': name,
-            'set_name': config.get('set-name', name),
-            'macaddress': config.get('match', {}).get('macaddress', ''),
-            'dhcp4': bool(config.get('dhcp4', True)),
-            'address': addresses[0] if addresses else '',
-            'gateway4': gateway,
-            'nameservers': nameservers,
-        })
-    return entries
-
-
-def serialise_candidates(candidates):
-    items = []
-    for candidate in candidates:
-        entry = select_storage.serialize_candidate(candidate)
-        if candidate['scenario'] == 'free-space':
-            entry['title'] = f"Install beside existing OS on {candidate['path']}"
-            entry['description'] = (
-                f"Use the largest unformatted region on {candidate['path']} "
-                f"({entry['free_region_gib']} GiB free)."
-            )
-        else:
-            entry['title'] = f"Use empty disk {candidate['path']}"
-            entry['description'] = f"Use the full empty disk ({entry['disk_size_gib']} GiB)."
-        items.append(entry)
-    return items
-
-
-HTML_PAGE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Robot Mindset Linux Installer</title>
-  <style>
-    :root {
-      --bg: #0f172a;
-      --panel: #111827;
-      --panel-2: #1f2937;
-      --accent: #f97316;
-      --accent-2: #fb923c;
-      --text: #f8fafc;
-      --muted: #cbd5e1;
-      --border: #334155;
-      --ok: #22c55e;
-      --danger: #ef4444;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: linear-gradient(180deg, #0b1120 0%, #111827 100%);
-      color: var(--text);
-      font-family: Inter, Arial, sans-serif;
-    }
-    .page {
-      max-width: 1120px;
-      margin: 0 auto;
-      padding: 24px;
-    }
-    .hero {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      margin-bottom: 24px;
-    }
-    .brand { font-size: 28px; font-weight: 700; }
-    .subtitle { color: var(--muted); margin-top: 6px; }
-    .status {
-      padding: 10px 14px;
-      border-radius: 999px;
-      background: rgba(249,115,22,0.16);
-      border: 1px solid rgba(249,115,22,0.4);
-      color: #fed7aa;
-      font-size: 14px;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: 1.3fr 1fr;
-      gap: 24px;
-    }
-    .panel {
-      background: rgba(17,24,39,0.88);
-      border: 1px solid var(--border);
-      border-radius: 18px;
-      padding: 20px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-    }
-    h2 { margin: 0 0 8px; font-size: 22px; }
-    .section-copy { color: var(--muted); margin-bottom: 18px; line-height: 1.5; }
-    .option {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 16px;
-      margin-bottom: 12px;
-      background: rgba(31,41,55,0.72);
-      cursor: pointer;
-    }
-    .option.selected {
-      border-color: var(--accent);
-      background: rgba(249,115,22,0.14);
-    }
-    .option-header {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    .option-title { font-size: 18px; font-weight: 600; }
-    .badge {
-      font-size: 12px;
-      padding: 6px 10px;
-      border-radius: 999px;
-      background: rgba(34,197,94,0.14);
-      color: #86efac;
-      border: 1px solid rgba(34,197,94,0.35);
-      white-space: nowrap;
-    }
-    .option-copy { color: var(--muted); margin-bottom: 10px; }
-    .meta { display: flex; flex-wrap: wrap; gap: 10px; color: var(--muted); font-size: 14px; }
-    .network-card {
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 16px;
-      background: rgba(31,41,55,0.72);
-      margin-bottom: 14px;
-    }
-    .network-card h3 { margin: 0 0 14px; font-size: 18px; }
-    .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-    input, select {
-      width: 100%;
-      padding: 11px 12px;
-      border-radius: 10px;
-      border: 1px solid #475569;
-      background: #0f172a;
-      color: var(--text);
-    }
-    .readonly { opacity: 0.75; }
-    .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
-      margin-top: 20px;
-      align-items: center;
-    }
-    button {
-      background: linear-gradient(135deg, var(--accent) 0%, var(--accent-2) 100%);
-      color: white;
-      border: 0;
-      border-radius: 12px;
-      padding: 12px 18px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .message { color: var(--muted); }
-    .message.error { color: #fca5a5; }
-    .message.ok { color: #86efac; }
-    @media (max-width: 900px) {
-      .grid { grid-template-columns: 1fr; }
-      .hero { flex-direction: column; align-items: flex-start; }
-      .field-grid { grid-template-columns: 1fr; }
-    }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <div class="hero">
-      <div>
-        <div class="brand">Robot Mindset Linux</div>
-        <div class="subtitle">Installer-time review for storage selection and network presets.</div>
-      </div>
-      <div id="timeout-status" class="status">Installer UI active</div>
-    </div>
-
-    <div class="grid">
-      <section class="panel">
-        <h2>Storage Destination</h2>
-        <div class="section-copy">
-          Existing partitions are preserved. Only unformatted free space or empty disks are eligible.
-        </div>
-        <div id="storage-options"></div>
-      </section>
-
-      <section class="panel">
-        <h2>Network Presets</h2>
-        <div class="section-copy">
-          Review or adjust the generated network config before installation continues.
-        </div>
-        <div id="network-options"></div>
-      </section>
-    </div>
-
-    <div class="actions">
-      <div id="message" class="message"></div>
-      <button id="submit-button" type="button">Continue Installation</button>
-    </div>
-  </div>
-
-  <script>
-    let state = null;
-    let selectedStorageId = null;
-    let timeoutInterval = null;
-    let closeRequested = false;
-
-    function escapeHtml(value) {
-      return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
-    function setMessage(text, kind='') {
-      const message = document.getElementById('message');
-      message.textContent = text;
-      message.className = kind ? `message ${kind}` : 'message';
-    }
-
-    function formatRemaining(seconds) {
-      const safe = Math.max(0, seconds);
-      const minutes = Math.floor(safe / 60);
-      const remainder = safe % 60;
-      return `${minutes}:${String(remainder).padStart(2, '0')}`;
-    }
-
-    function updateTimeoutStatus() {
-      const element = document.getElementById('timeout-status');
-      if (!state || !state.timeout_deadline_epoch) {
-        element.textContent = 'Installer UI active';
-        return;
-      }
-      const remaining = Math.max(0, Math.ceil(state.timeout_deadline_epoch - (Date.now() / 1000)));
-      element.textContent = `Installer UI active - auto-continue in ${formatRemaining(remaining)}`;
-      if (remaining === 0 && timeoutInterval) {
-        clearInterval(timeoutInterval);
-        timeoutInterval = null;
-        requestClose('Installer timed out. Installation continues with the default selection.', true);
-      }
-    }
-
-    function requestClose(message, forceBlank=false) {
-      if (closeRequested) {
-        return;
-      }
-      closeRequested = true;
-      if (timeoutInterval) {
-        clearInterval(timeoutInterval);
-        timeoutInterval = null;
-      }
-      setMessage(message, 'ok');
-      const button = document.getElementById('submit-button');
-      button.disabled = true;
-      window.setTimeout(() => {
-        try {
-          window.open('', '_self');
-        } catch (error) {
-          // Ignore browser restrictions.
-        }
-        try {
-          window.close();
-        } catch (error) {
-          // Ignore browser restrictions.
-        }
-        if (forceBlank) {
-          try {
-            window.location.replace('about:blank');
-          } catch (error) {
-            // Ignore browser restrictions.
-          }
-        }
-      }, 150);
-    }
-
-    function renderStorage() {
-      const container = document.getElementById('storage-options');
-      container.innerHTML = '';
-      state.storage_candidates.forEach((candidate) => {
-        const option = document.createElement('div');
-        option.className = 'option' + (candidate.id === selectedStorageId ? ' selected' : '');
-        option.onclick = () => {
-          selectedStorageId = candidate.id;
-          renderStorage();
-        };
-        option.innerHTML = `
-          <div class="option-header">
-            <div class="option-title">${escapeHtml(candidate.title)}</div>
-            <div class="badge">${candidate.is_ssd ? 'SSD preferred' : 'HDD'}</div>
-          </div>
-          <div class="option-copy">${escapeHtml(candidate.description)}</div>
-          <div class="meta">
-            <span>Disk size: ${candidate.disk_size_gib} GiB</span>
-            <span>Free region: ${candidate.free_region_gib} GiB</span>
-            <span>Partitions: ${candidate.partition_count}</span>
-          </div>
-        `;
-        container.appendChild(option);
-      });
-    }
-
-    function renderNetworks() {
-      const container = document.getElementById('network-options');
-      container.innerHTML = '';
-      state.networks.forEach((network, index) => {
-        const card = document.createElement('div');
-        card.className = 'network-card';
-        card.innerHTML = `
-          <h3>${escapeHtml(network.name)}</h3>
-          <div class="field-grid">
-            <div>
-              <label>MAC address</label>
-              <input class="readonly" data-network="${index}" data-field="macaddress" value="${escapeHtml(network.macaddress)}" readonly>
-            </div>
-            <div>
-              <label>Set name</label>
-              <input class="readonly" data-network="${index}" data-field="set_name" value="${escapeHtml(network.set_name)}" readonly>
-            </div>
-            <div>
-              <label>IPv4 mode</label>
-              <select data-network="${index}" data-field="dhcp4">
-                <option value="true" ${network.dhcp4 ? 'selected' : ''}>DHCP</option>
-                <option value="false" ${network.dhcp4 ? '' : 'selected'}>Static</option>
-              </select>
-            </div>
-            <div>
-              <label>IPv4 address / CIDR</label>
-              <input data-network="${index}" data-field="address" value="${escapeHtml(network.address || '')}">
-            </div>
-            <div>
-              <label>Gateway</label>
-              <input data-network="${index}" data-field="gateway4" value="${escapeHtml(network.gateway4 || '')}">
-            </div>
-            <div>
-              <label>Nameservers</label>
-              <input data-network="${index}" data-field="nameservers" value="${escapeHtml((network.nameservers || []).join(', '))}">
-            </div>
-          </div>
-          <div class="hint">For static mode use comma-separated DNS servers, for example 1.1.1.1, 9.9.9.9.</div>
-        `;
-        container.appendChild(card);
-      });
-    }
-
-    function collectNetworks() {
-      return state.networks.map((network, index) => {
-        const get = (field) => document.querySelector(`[data-network="${index}"][data-field="${field}"]`);
-        return {
-          name: network.name,
-          set_name: network.set_name,
-          macaddress: network.macaddress,
-          dhcp4: get('dhcp4').value === 'true',
-          address: get('address').value.trim(),
-          gateway4: get('gateway4').value.trim(),
-          nameservers: get('nameservers').value.split(',').map((item) => item.trim()).filter(Boolean),
-        };
-      });
-    }
-
-    async function submitSelection() {
-      if (!selectedStorageId) {
-        setMessage('Select a storage destination before continuing.', 'error');
-        return;
-      }
-      const button = document.getElementById('submit-button');
-      button.disabled = true;
-      setMessage('Saving selection ...');
-      try {
-        const response = await fetch('/api/submit', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({
-            selected_storage_id: selectedStorageId,
-            networks: collectNetworks(),
-          }),
-        });
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(payload.error || 'Submission failed');
-        }
-        if (timeoutInterval) {
-          clearInterval(timeoutInterval);
-          timeoutInterval = null;
-        }
-        requestClose('Selection saved. Installation continues ...', true);
-      } catch (error) {
-        setMessage(error.message, 'error');
-        button.disabled = false;
-      }
-    }
-
-    async function init() {
-      setMessage('Loading installer state ...');
-      const response = await fetch('/api/state');
-      state = await response.json();
-      selectedStorageId = state.selected_storage_id;
-      renderStorage();
-      renderNetworks();
-      updateTimeoutStatus();
-      if (timeoutInterval) {
-        clearInterval(timeoutInterval);
-      }
-      timeoutInterval = window.setInterval(updateTimeoutStatus, 1000);
-      setMessage('');
-    }
-
-    document.getElementById('submit-button').addEventListener('click', submitSelection);
-    init().catch((error) => setMessage(error.message, 'error'));
-  </script>
-</body>
-</html>
-"""
-
-
-ERROR_HTML_PAGE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Robot Mindset Linux Installer Error</title>
-  <style>
-    body { margin: 0; font-family: Inter, Arial, sans-serif; background: #0f172a; color: #f8fafc; }
-    .page { max-width: 960px; margin: 0 auto; padding: 32px; }
-    .panel { background: rgba(17,24,39,0.92); border: 1px solid #334155; border-radius: 18px; padding: 24px; }
-    h1 { margin: 0 0 12px; font-size: 28px; }
-    p { color: #cbd5e1; line-height: 1.5; }
-    pre { white-space: pre-wrap; word-break: break-word; background: #020617; border: 1px solid #334155; border-radius: 12px; padding: 16px; overflow: auto; color: #fca5a5; }
-    .status { margin-top: 16px; color: #fed7aa; }
-  </style>
-</head>
-<body>
-  <div class="page">
-    <div class="panel">
-      <h1>Installer Error</h1>
-      <p>The installer UI could not continue. Review the message below. The terminal log is still written to <code>/var/log/installer</code>.</p>
-      <pre>{message}</pre>
-      <div class="status">This page will close automatically after {timeout_seconds} seconds and the installer will stop.</div>
-    </div>
-  </div>
-</body>
-</html>
-"""
-
-
-class InstallerUIState:
-    def __init__(self, autoinstall_path: str, selection_path: Path, timeout_seconds: int):
-        self.autoinstall_path = autoinstall_path
-        self.selection_path = Path(selection_path)
-        self.timeout_seconds = max(0, int(timeout_seconds))
-        self.started_at = time.time()
-        self.selection_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config = select_storage.load_config()
-        self.disks = select_storage.gather_disks(self.config['min_free_bytes'])
-        self.candidates = select_storage.collect_candidates(
-            self.disks,
-            self.config['min_free_bytes'],
-            prefer_ssd=self.config['prefer_ssd'],
-        )
-        if not self.candidates:
-            raise RuntimeError('No eligible storage targets found for the installer UI')
-        self.networks = extract_network_entries(autoinstall_path)
-        self.selected_storage_id = select_storage.candidate_id(
-            self.candidates[0]['path'],
-            self.candidates[0]['scenario'],
-        )
-
-    def api_state(self):
-        return {
-            'storage_candidates': serialise_candidates(self.candidates),
-            'selected_storage_id': self.selected_storage_id,
-            'networks': self.networks,
-            'timeout_seconds': self.timeout_seconds,
-            'timeout_deadline_epoch': self.started_at + self.timeout_seconds if self.timeout_seconds > 0 else None,
-        }
-
-    def save_selection(self, payload):
-        selected_storage_id = payload.get('selected_storage_id')
-        allowed = {
-            select_storage.candidate_id(item['path'], item['scenario']): item
-            for item in self.candidates
-        }
-        if selected_storage_id not in allowed:
-            raise RuntimeError('The selected storage destination is no longer available')
-
-        networks = payload.get('networks') or []
-        selection = {
-            'selected_storage_id': selected_storage_id,
-            'selected_storage': {
-                'path': allowed[selected_storage_id]['path'],
-                'scenario': allowed[selected_storage_id]['scenario'],
-            },
-            'networks': networks,
-        }
-        self.selection_path.write_text(json.dumps(selection, indent=2), encoding='utf-8')
-        log(f'Saved installer selection to {self.selection_path}')
-
-
-class InstallerRequestHandler(BaseHTTPRequestHandler):
-    server_version = 'RobotMindsetInstaller/1.0'
-
-    def _send_json(self, payload, status=HTTPStatus.OK):
-        body = json.dumps(payload).encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', 'application/json; charset=utf-8')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _send_html(self, body, status=HTTPStatus.OK):
-        encoded = body.encode('utf-8')
-        self.send_response(status)
-        self.send_header('Content-Type', 'text/html; charset=utf-8')
-        self.send_header('Content-Length', str(len(encoded)))
-        self.end_headers()
-        self.wfile.write(encoded)
-
-    def log_message(self, fmt, *args):
-        log(fmt % args)
-
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        if parsed.path == '/':
-            if getattr(self.server, 'error_message', None):
-                self._send_html(ERROR_HTML_PAGE.format(
-                    message=html.escape(self.server.error_message),
-                    timeout_seconds=self.server.timeout_seconds,
-                ))
-            else:
-                self._send_html(HTML_PAGE)
-            return
-        if parsed.path == '/api/state':
-            if getattr(self.server, 'error_message', None):
-                self._send_json({'error': self.server.error_message, 'timeout_seconds': self.server.timeout_seconds})
-            else:
-                self._send_json(self.server.ui_state.api_state())
-            return
-        self._send_json({'error': 'not found'}, status=HTTPStatus.NOT_FOUND)
-
-    def do_POST(self):
-        parsed = urlparse(self.path)
-        if parsed.path != '/api/submit' or getattr(self.server, 'error_message', None):
-            self._send_json({'error': 'not found'}, status=HTTPStatus.NOT_FOUND)
-            return
-        content_length = int(self.headers.get('Content-Length', '0'))
-        try:
-            payload = json.loads(self.rfile.read(content_length).decode('utf-8'))
-            self.server.ui_state.save_selection(payload)
-        except Exception as exc:
-            self._send_json({'error': str(exc)}, status=HTTPStatus.BAD_REQUEST)
-            return
-        self._send_json({'status': 'ok'})
-        threading.Thread(target=terminate_browser_processes, daemon=True).start()
-        threading.Thread(target=self.server.shutdown, daemon=True).start()
-
-
-class InstallerHTTPServer(ThreadingHTTPServer):
-    def __init__(self, server_address, ui_state=None, error_message=None, timeout_seconds=DEFAULT_UI_TIMEOUT_SECONDS):
-        super().__init__(server_address, InstallerRequestHandler)
-        self.ui_state = ui_state
-        self.error_message = error_message
-        self.timeout_seconds = timeout_seconds
-
-
 def register_browser_process(process):
     with BROWSER_PROCESSES_LOCK:
         BROWSER_PROCESSES.append(process)
@@ -759,19 +172,6 @@ def build_firefox_reuse_command(url, executable='firefox'):
     return [executable, '--new-window', '--kiosk', url]
 
 
-def wait_for_ui_endpoint(url, timeout_seconds=10):
-    state_url = url.rstrip('/') + '/api/state'
-    deadline = time.time() + timeout_seconds
-    while time.time() < deadline:
-        try:
-            with urllib.request.urlopen(state_url, timeout=1) as response:
-                if response.status == HTTPStatus.OK:
-                    return True
-        except (urllib.error.URLError, TimeoutError, OSError):
-            time.sleep(0.25)
-    return False
-
-
 def build_firefox_command(url, context, executable='firefox'):
     context_env = context.get('env', {})
     profile_root = Path(context_env.get('XDG_RUNTIME_DIR') or context_env.get('HOME') or '/tmp')
@@ -805,6 +205,18 @@ def build_firefox_command(url, context, executable='firefox'):
     return [executable, '--no-remote', '--new-instance', '--kiosk', '--profile', str(profile_dir), url]
 
 
+def wait_for_ui_endpoint(url, timeout_seconds=10):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=1) as response:
+                if response.status == 200:
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            time.sleep(0.25)
+    return False
+
+
 def open_browser(url):
     context = discover_gui_context()
     if not context:
@@ -820,10 +232,8 @@ def open_browser(url):
     elif shutil.which('firefox'):
         firefox_executable = shutil.which('firefox')
 
-    firefox_is_running = bool(firefox_executable and firefox_running(context))
-    if firefox_executable:
+    if firefox_executable and firefox_running(context):
         commands.append(build_firefox_reuse_command(url, firefox_executable))
-
     if shutil.which('chromium-browser'):
         commands.append(['chromium-browser', '--new-window', '--kiosk', '--incognito', url])
     if shutil.which('chromium'):
@@ -851,25 +261,21 @@ def open_browser(url):
         if launch_user and os.geteuid() == 0 and runuser:
             launch_command = [runuser, '-u', launch_user, '--'] + command
         try:
-            process = subprocess.Popen(launch_command, env=launch_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            process = subprocess.Popen(
+                launch_command,
+                env=launch_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
             time.sleep(2)
             return_code = process.poll()
-            endpoint_ready = wait_for_ui_endpoint(url, timeout_seconds=2)
             if return_code not in (None, 0):
                 log(f"Browser command exited early with code {return_code}: {' '.join(launch_command)}")
                 continue
             if return_code is None:
                 register_browser_process(process)
-            launch_state = 'still running' if return_code is None else 'returned immediately after hand-off'
-            endpoint_state = 'reachable' if endpoint_ready else 'not reachable'
-            command_text = ' '.join(launch_command)
-            log(
-                f"Opened installer UI using: {command_text} "
-                f"with env DISPLAY={launch_env.get('DISPLAY', '')} WAYLAND_DISPLAY={launch_env.get('WAYLAND_DISPLAY', '')}; "
-                f"command {launch_state}; endpoint {endpoint_state}"
-            )
-            if not endpoint_ready:
-                log(f'Installer UI browser launch may not have attached correctly for command: {command_text}')
+            log(f"Opened installer UI using: {' '.join(launch_command)}")
             return True
         except Exception as exc:
             log(f"Could not start browser command {' '.join(launch_command)}: {exc}")
@@ -877,28 +283,233 @@ def open_browser(url):
     return False
 
 
+def ensure_installer_runtime():
+    if Path(sys.executable).resolve().is_relative_to(RUNTIME_VENV_PATH):
+        return
+    if not RUNTIME_REQUIREMENTS_PATH.exists():
+        raise RuntimeError(f'Missing installer runtime requirements: {RUNTIME_REQUIREMENTS_PATH}')
+    if not RUNTIME_WHEELHOUSE_PATH.is_dir():
+        raise RuntimeError(f'Missing installer runtime wheelhouse: {RUNTIME_WHEELHOUSE_PATH}')
+
+    venv_python = RUNTIME_VENV_PATH / 'bin/python'
+    if not venv_python.exists():
+        subprocess.run([sys.executable, '-m', 'venv', str(RUNTIME_VENV_PATH)], check=True)
+
+    if not RUNTIME_READY_MARKER.exists():
+        subprocess.run(
+            [
+                str(venv_python),
+                '-m',
+                'pip',
+                'install',
+                '--no-index',
+                f'--find-links={RUNTIME_WHEELHOUSE_PATH}',
+                '-r',
+                str(RUNTIME_REQUIREMENTS_PATH),
+            ],
+            check=True,
+        )
+        RUNTIME_READY_MARKER.write_text('ready\n', encoding='utf-8')
+
+    env = os.environ.copy()
+    os.execve(str(venv_python), [str(venv_python), __file__, *sys.argv[1:]], env)
+
+
+def extract_network_entries(autoinstall_path):
+    autoinstall = select_storage.read_autoinstall(autoinstall_path)
+    network = autoinstall.get('network', {}) or {}
+    ethernets = network.get('ethernets', {}) or {}
+    entries = []
+    for name, config in ethernets.items():
+        routes = config.get('routes') or []
+        gateway = ''
+        for route in routes:
+            if route.get('to') == 'default' and route.get('via'):
+                gateway = route['via']
+                break
+        nameservers = config.get('nameservers', {}).get('addresses', []) or []
+        addresses = config.get('addresses', []) or []
+        entries.append({
+            'name': name,
+            'set_name': config.get('set-name', name),
+            'macaddress': config.get('match', {}).get('macaddress', ''),
+            'dhcp4': bool(config.get('dhcp4', True)),
+            'address': addresses[0] if addresses else '',
+            'gateway4': gateway,
+            'nameservers': nameservers,
+        })
+    return entries
+
+
+def serialise_candidates(candidates):
+    items = []
+    for candidate in candidates:
+        entry = select_storage.serialize_candidate(candidate)
+        if candidate['scenario'] == 'free-space':
+            entry['title'] = f"Install beside existing OS on {candidate['path']}"
+            entry['description'] = (
+                f"Use the largest unformatted region on {candidate['path']} "
+                f"({entry['free_region_gib']} GiB free)."
+            )
+        else:
+            entry['title'] = f"Use empty disk {candidate['path']}"
+            entry['description'] = f"Use the full empty disk ({entry['disk_size_gib']} GiB)."
+        items.append(entry)
+    return items
+
+
+def sanitize_nameservers(value):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return [item.strip() for item in str(value).split(',') if item.strip()]
+
+
+class InstallerUIState:
+    def __init__(self, autoinstall_path: str, selection_path: Path, timeout_seconds: int):
+        self.autoinstall_path = autoinstall_path
+        self.selection_path = Path(selection_path)
+        self.timeout_seconds = max(0, int(timeout_seconds))
+        self.started_at = time.time()
+        self.selection_path.parent.mkdir(parents=True, exist_ok=True)
+
+        self.config = select_storage.load_config()
+        self.disks = select_storage.gather_disks(self.config['min_free_bytes'])
+        self.candidates = select_storage.collect_candidates(
+            self.disks,
+            self.config['min_free_bytes'],
+            prefer_ssd=self.config['prefer_ssd'],
+        )
+        if not self.candidates:
+            raise RuntimeError('No eligible storage targets found for the installer UI')
+        self.storage_candidates = serialise_candidates(self.candidates)
+        self.identity_defaults = select_storage.extract_identity_entry(autoinstall_path)
+        self.networks = extract_network_entries(autoinstall_path)
+        self.software_defaults = {
+            'ssh': {
+                'authorized_keys': self.config.get('ssh_authorized_keys', []) or [],
+            },
+            'linux_kernel': {
+                'realtime': self._default_realtime_settings(),
+            },
+        }
+        self.selected_storage_id = select_storage.candidate_id(
+            self.candidates[0]['path'],
+            self.candidates[0]['scenario'],
+        )
+
+    def _default_realtime_settings(self):
+        realtime = dict(self.config.get('linux_kernel_realtime', {}) or {})
+        realtime.setdefault('enable', False)
+        realtime.setdefault('version_major', 6)
+        realtime.setdefault('version_minor', 8)
+        realtime.setdefault('version_patch', 2)
+        realtime.setdefault('version_rt', 11)
+        return realtime
+
+    def timeout_deadline_epoch(self):
+        if self.timeout_seconds <= 0:
+            return None
+        return self.started_at + self.timeout_seconds
+
+    def default_selection(self):
+        return self.build_selection({})
+
+    def build_selection(self, payload):
+        payload = payload or {}
+        allowed = {
+            select_storage.candidate_id(item['path'], item['scenario']): item
+            for item in self.candidates
+        }
+        selected_storage_id = payload.get('selected_storage_id') or self.selected_storage_id
+        if selected_storage_id not in allowed:
+            raise RuntimeError('The selected storage destination is no longer available')
+
+        identity_payload = payload.get('identity') or {}
+        identity = {
+            'hostname': str(identity_payload.get('hostname') or self.identity_defaults.get('hostname', '')).strip(),
+            'realname': str(identity_payload.get('realname') or self.identity_defaults.get('realname', '')).strip(),
+            'username': str(identity_payload.get('username') or self.identity_defaults.get('username', '')).strip(),
+            'password': self.identity_defaults.get('password', ''),
+        }
+        new_password = str(identity_payload.get('password') or '').strip()
+        if new_password:
+            identity['password'] = hash_password(new_password)
+
+        storage_payload = ((payload.get('hardware') or {}).get('storage') or {})
+        hardware = {
+            'storage': {
+                'password': str(storage_payload.get('password') or self.config.get('encryption_key', '')).strip(),
+                'boot_size': str(storage_payload.get('boot_size') or self.config.get('boot_size_text', '4G')).strip(),
+            }
+        }
+
+        networks = []
+        for item in payload.get('networks') or self.networks:
+            name = str(item.get('name') or item.get('set_name') or item.get('set-name') or '').strip()
+            if not name:
+                continue
+            network = {
+                'name': name,
+                'set_name': str(item.get('set_name') or item.get('set-name') or name).strip() or name,
+                'macaddress': str(item.get('macaddress') or item.get('mac') or '').strip(),
+                'dhcp4': bool(item.get('dhcp4', True)),
+                'address': str(item.get('address') or item.get('ipv4') or '').strip(),
+                'gateway4': str(item.get('gateway4') or item.get('gateway') or '').strip(),
+                'nameservers': sanitize_nameservers(item.get('nameservers')),
+            }
+            networks.append(network)
+
+        software_payload = payload.get('software') or {}
+        ssh_payload = (software_payload.get('ssh') or {})
+        realtime_payload = ((software_payload.get('linux_kernel') or {}).get('realtime') or {})
+        realtime_defaults = self.software_defaults['linux_kernel']['realtime']
+        software = {
+            'ssh': {
+                'authorized_keys': [
+                    line.strip()
+                    for line in (ssh_payload.get('authorized_keys') or self.software_defaults['ssh']['authorized_keys'])
+                    if str(line).strip()
+                ],
+            },
+            'linux_kernel': {
+                'realtime': {
+                    'enable': bool(realtime_payload.get('enable', realtime_defaults.get('enable', False))),
+                    'version_major': int(realtime_payload.get('version_major', realtime_defaults.get('version_major', 6))),
+                    'version_minor': int(realtime_payload.get('version_minor', realtime_defaults.get('version_minor', 8))),
+                    'version_patch': int(realtime_payload.get('version_patch', realtime_defaults.get('version_patch', 2))),
+                    'version_rt': int(realtime_payload.get('version_rt', realtime_defaults.get('version_rt', 11))),
+                },
+            },
+        }
+
+        return {
+            'identity': identity,
+            'hardware': hardware,
+            'selected_storage_id': selected_storage_id,
+            'selected_storage': {
+                'path': allowed[selected_storage_id]['path'],
+                'scenario': allowed[selected_storage_id]['scenario'],
+            },
+            'networks': networks,
+            'software': software,
+        }
+
+    def save_selection(self, payload):
+        selection = self.build_selection(payload)
+        self.selection_path.write_text(json.dumps(selection, indent=2), encoding='utf-8')
+        log(f'Saved installer selection to {self.selection_path}')
+        return selection
+
+
 def write_default_selection(ui_state):
-    selection = {
-        'selected_storage_id': ui_state.selected_storage_id,
-        'selected_storage': {
-            'path': ui_state.candidates[0]['path'],
-            'scenario': ui_state.candidates[0]['scenario'],
-        },
-        'networks': ui_state.networks,
-    }
+    selection = ui_state.default_selection()
     ui_state.selection_path.write_text(json.dumps(selection, indent=2), encoding='utf-8')
     log(f'Wrote non-interactive default selection to {ui_state.selection_path}')
 
 
-def shutdown_error_server_after_timeout(server, timeout_seconds):
-    if timeout_seconds <= 0:
-        return
-    time.sleep(timeout_seconds)
-    terminate_browser_processes()
-    threading.Thread(target=server.shutdown, daemon=True).start()
-
-
-def shutdown_after_timeout(server, ui_state, timeout_seconds):
+def shutdown_after_timeout(ui_state, timeout_seconds, shutdown_callback):
     if timeout_seconds <= 0:
         return
     time.sleep(timeout_seconds)
@@ -906,8 +517,218 @@ def shutdown_after_timeout(server, ui_state, timeout_seconds):
         return
     log(f'Installer UI timed out after {timeout_seconds}s; falling back to default selection')
     write_default_selection(ui_state)
-    terminate_browser_processes()
-    threading.Thread(target=server.shutdown, daemon=True).start()
+    shutdown_callback()
+
+
+def render_ui(ui_state, host: str, port: int) -> None:
+    ensure_installer_runtime()
+    from nicegui import app, ui
+
+    url = f'http://{host}:{port}'
+    shutdown_requested = threading.Event()
+
+    def shutdown_application():
+        if shutdown_requested.is_set():
+            return
+        shutdown_requested.set()
+        terminate_browser_processes()
+        try:
+            app.shutdown()
+        except Exception as exc:
+            log(f'Could not shut down NiceGUI cleanly: {exc}')
+
+    threading.Thread(target=open_browser, args=(url,), daemon=True).start()
+    threading.Thread(
+        target=shutdown_after_timeout,
+        args=(ui_state, ui_state.timeout_seconds, shutdown_application),
+        daemon=True,
+    ).start()
+
+    ui.add_head_html('''
+    <style>
+      body { background: linear-gradient(180deg, #0b1120 0%, #111827 100%); color: #f8fafc; }
+      .rm-page { max-width: 1120px; margin: 0 auto; padding: 24px; }
+      .rm-card { background: rgba(17, 24, 39, 0.88); border: 1px solid #334155; border-radius: 18px; }
+      .rm-muted { color: #cbd5e1; }
+      .rm-title { font-size: 28px; font-weight: 700; }
+      .rm-subtitle { color: #cbd5e1; margin-top: 6px; }
+      .rm-status { padding: 10px 14px; border-radius: 999px; background: rgba(249,115,22,0.16); border: 1px solid rgba(249,115,22,0.4); color: #fed7aa; }
+      .rm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+    </style>
+    ''')
+
+    @ui.page('/')
+    def page():
+        ui.page_title('Robot Mindset Linux Installer')
+        network_models = [dict(item) for item in ui_state.networks]
+        authorized_keys_default = '\n'.join(ui_state.software_defaults['ssh']['authorized_keys'])
+        realtime_default = dict(ui_state.software_defaults['linux_kernel']['realtime'])
+
+        with ui.column().classes('rm-page w-full gap-4'):
+            with ui.row().classes('w-full items-center justify-between gap-4'):
+                with ui.column().classes('gap-0'):
+                    ui.label('Robot Mindset Linux').classes('rm-title')
+                    ui.label('Installer-time review for identity, hardware, and software configuration.').classes('rm-subtitle')
+                timeout_label = ui.label('Installer UI active').classes('rm-status')
+
+            deadline = ui_state.timeout_deadline_epoch()
+
+            def refresh_timeout():
+                if not deadline:
+                    timeout_label.set_text('Installer UI active')
+                    return
+                remaining = max(0, int(deadline - time.time()))
+                timeout_label.set_text(f'Installer UI active - auto-continue in {remaining // 60}:{remaining % 60:02d}')
+
+            refresh_timeout()
+            if deadline:
+                ui.timer(1.0, refresh_timeout)
+
+            with ui.stepper().props('horizontal header-nav').classes('w-full'):
+                with ui.step('Identity').classes('w-full'):
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.card().classes('rm-card w-full p-4'):
+                            hostname = ui.input('Hostname', value=ui_state.identity_defaults.get('hostname', '')).classes('w-full')
+                            realname = ui.input('Real Name', value=ui_state.identity_defaults.get('realname', '')).classes('w-full')
+                            username = ui.input('Username', value=ui_state.identity_defaults.get('username', '')).classes('w-full')
+                            password = ui.input('Password', value='', password=True, password_toggle_button=True).classes('w-full')
+                            ui.label('Leave the password blank to keep the current hashed autoinstall password.').classes('rm-muted text-sm')
+                        with ui.card().classes('rm-card w-full p-4'):
+                            ui.label('Current ISO / Environment').classes('text-lg')
+                            ui.label(f"Environment: {ui_state.config.get('environment') or 'unknown'}").classes('rm-muted')
+                            ui.label(f"ISO Image: {ui_state.config.get('image') or 'unknown'}").classes('rm-muted')
+                            ui.label(f"Source ID: {ui_state.config.get('source_id') or 'unknown'}").classes('rm-muted')
+
+                with ui.step('Hardware').classes('w-full'):
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.expansion('Storage Configuration', icon='storage', value=True).classes('w-full'):
+                            with ui.column().classes('w-full gap-4 p-2'):
+                                with ui.card().classes('rm-card w-full p-4'):
+                                    storage_password = ui.input('Disk Password', value=ui_state.config.get('encryption_key', ''), password=True, password_toggle_button=True).classes('w-full')
+                                    boot_size = ui.input('Boot Size', value=ui_state.config.get('boot_size_text', '4G')).classes('w-full')
+                                with ui.card().classes('rm-card w-full p-4'):
+                                    ui.label('Storage Policy').classes('text-lg')
+                                    ui.label('Existing partitions are preserved. Only unformatted free space or empty disks are eligible for installation.').classes('rm-muted')
+                                    ui.label(f"Minimum free space: {select_storage.bytes_to_gib(ui_state.config['min_free_bytes'])} GiB").classes('rm-muted')
+                                    ui.label(f"SSD preference: {'enabled' if ui_state.config.get('prefer_ssd') else 'disabled'}").classes('rm-muted')
+                        with ui.expansion('Storage Targets', icon='hard_drive', value=True).classes('w-full'):
+                            with ui.column().classes('w-full gap-4 p-2'):
+                                storage_options = {item['id']: item['title'] for item in ui_state.storage_candidates}
+                                storage_choice = ui.radio(storage_options, value=ui_state.selected_storage_id).classes('w-full')
+                                for candidate in ui_state.storage_candidates:
+                                    with ui.card().classes('rm-card w-full p-4'):
+                                        ui.label(candidate['title']).classes('text-lg')
+                                        ui.label(candidate['description']).classes('rm-muted')
+                                        with ui.row().classes('rm-grid w-full'):
+                                            ui.label(f"Disk size: {candidate['disk_size_gib']} GiB").classes('rm-muted')
+                                            ui.label(f"Free region: {candidate['free_region_gib']} GiB").classes('rm-muted')
+                                            ui.label(f"Partitions: {candidate['partition_count']}").classes('rm-muted')
+                                            ui.label(f"Media: {'SSD' if candidate['is_ssd'] else 'HDD'}").classes('rm-muted')
+                        with ui.expansion('Network Configuration', icon='settings_ethernet', value=True).classes('w-full'):
+                            with ui.column().classes('w-full gap-4 p-2') as network_container:
+                                def remove_network(index: int):
+                                    network_models.pop(index)
+                                    render_networks()
+
+                                def add_network():
+                                    network_models.append({
+                                        'name': f'network{len(network_models) + 1}',
+                                        'set_name': '',
+                                        'macaddress': '',
+                                        'dhcp4': True,
+                                        'address': '',
+                                        'gateway4': '',
+                                        'nameservers': [],
+                                    })
+                                    render_networks()
+
+                                def render_networks():
+                                    network_container.clear()
+                                    with network_container:
+                                        ui.button('Add Network', icon='add', on_click=add_network).props('outline')
+                                        if not network_models:
+                                            ui.label('No network presets configured.').classes('rm-muted')
+                                        for index, network in enumerate(network_models):
+                                            with ui.card().classes('rm-card w-full p-4 gap-4'):
+                                                with ui.row().classes('w-full items-center justify-between'):
+                                                    ui.label(network.get('name') or f'Network {index + 1}').classes('text-lg')
+                                                    ui.button(icon='delete', color='negative', on_click=lambda idx=index: remove_network(idx)).props('flat round')
+                                                with ui.grid(columns=2).classes('w-full gap-4'):
+                                                    name_input = ui.input('Name', value=network.get('name', '')).classes('w-full')
+                                                    name_input.on('update:model-value', lambda e, row=network: row.update(name=e.value, set_name=e.value))
+                                                    mac_input = ui.input('MAC Address', value=network.get('macaddress', '')).classes('w-full')
+                                                    mac_input.on('update:model-value', lambda e, row=network: row.update(macaddress=e.value))
+                                                    dhcp_select = ui.select({'true': 'DHCP', 'false': 'Static'}, value='true' if network.get('dhcp4', True) else 'false', label='IPv4 Mode').classes('w-full')
+                                                    dhcp_select.on('update:model-value', lambda e, row=network: row.update(dhcp4=(e.value == 'true')))
+                                                    address_input = ui.input('IPv4 Address / CIDR', value=network.get('address', '')).classes('w-full')
+                                                    address_input.on('update:model-value', lambda e, row=network: row.update(address=e.value))
+                                                    gateway_input = ui.input('Gateway', value=network.get('gateway4', '')).classes('w-full')
+                                                    gateway_input.on('update:model-value', lambda e, row=network: row.update(gateway4=e.value))
+                                                    nameserver_input = ui.input('Nameservers', value=', '.join(network.get('nameservers', []))).classes('w-full col-span-2')
+                                                    nameserver_input.on('update:model-value', lambda e, row=network: row.update(nameservers=sanitize_nameservers(e.value)))
+                                render_networks()
+
+                with ui.step('Software').classes('w-full'):
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.expansion('Authorized SSH Keys', icon='vpn_key', value=True).classes('w-full'):
+                            with ui.card().classes('rm-card w-full p-4'):
+                                ssh_keys = ui.textarea('Authorized SSH Keys', value=authorized_keys_default).props('autogrow').classes('w-full')
+                                ui.label('Enter one public key per line.').classes('rm-muted text-sm')
+                        with ui.expansion('Linux Kernel Realtime', icon='construction', value=True).classes('w-full'):
+                            with ui.card().classes('rm-card w-full p-4'):
+                                rt_enable = ui.checkbox('Enable Realtime Kernel', value=bool(realtime_default.get('enable', False))).classes('w-full')
+                                with ui.grid(columns=4).classes('w-full gap-4'):
+                                    rt_major = ui.number('Major', value=int(realtime_default.get('version_major', 6))).classes('w-full')
+                                    rt_minor = ui.number('Minor', value=int(realtime_default.get('version_minor', 8))).classes('w-full')
+                                    rt_patch = ui.number('Patch', value=int(realtime_default.get('version_patch', 2))).classes('w-full')
+                                    rt_rt = ui.number('RT', value=int(realtime_default.get('version_rt', 11))).classes('w-full')
+                                ui.label('This drives the target-side realtime-patch role and is applied offline from the extracted payload.').classes('rm-muted text-sm')
+
+            def submit_selection():
+                try:
+                    ui_state.save_selection({
+                        'identity': {
+                            'hostname': hostname.value,
+                            'realname': realname.value,
+                            'username': username.value,
+                            'password': password.value,
+                        },
+                        'hardware': {
+                            'storage': {
+                                'password': storage_password.value,
+                                'boot_size': boot_size.value,
+                            },
+                        },
+                        'selected_storage_id': storage_choice.value,
+                        'networks': network_models,
+                        'software': {
+                            'ssh': {
+                                'authorized_keys': [line.strip() for line in ssh_keys.value.splitlines() if line.strip()],
+                            },
+                            'linux_kernel': {
+                                'realtime': {
+                                    'enable': bool(rt_enable.value),
+                                    'version_major': int(rt_major.value or 6),
+                                    'version_minor': int(rt_minor.value or 8),
+                                    'version_patch': int(rt_patch.value or 2),
+                                    'version_rt': int(rt_rt.value or 11),
+                                },
+                            },
+                        },
+                    })
+                except Exception as exc:
+                    ui.notify(str(exc), color='negative')
+                    return
+                ui.notify('Selection saved. Installation continues ...', color='positive')
+                ui.run_javascript('try { window.open("", "_self"); window.close(); } catch (error) {} try { window.location.replace("about:blank"); } catch (error) {}')
+                threading.Thread(target=shutdown_application, daemon=True).start()
+
+            with ui.row().classes('w-full justify-end gap-4'):
+                ui.button('Apply and Continue', icon='task_alt', on_click=submit_selection)
+
+    log(f'Installer UI listening on {url}')
+    ui.run(host=host, port=port, show=False, reload=False, title='Robot Mindset Linux Installer')
+    log('Installer UI finished')
 
 
 def main():
@@ -919,38 +740,17 @@ def main():
     parser.add_argument('--timeout', type=int, default=DEFAULT_UI_TIMEOUT_SECONDS)
     args = parser.parse_args()
 
-    url = f'http://{args.host}:{args.port}'
-    try:
-        ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file), args.timeout)
-    except Exception:
-        error_message = traceback.format_exc()
-        log('Installer UI initialization failed; serving error page to the browser')
-        log(error_message)
-        if not has_gui_session():
-            raise
-        server = InstallerHTTPServer((args.host, args.port), error_message=error_message, timeout_seconds=args.timeout)
-        browser_thread = threading.Thread(target=open_browser, args=(url,), daemon=True)
-        browser_thread.start()
-        timeout_thread = threading.Thread(target=shutdown_error_server_after_timeout, args=(server, args.timeout), daemon=True)
-        timeout_thread.start()
-        log(f'Installer UI error page listening on {url}')
-        server.serve_forever()
-        server.server_close()
-        raise RuntimeError(error_message)
-
+    ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file), args.timeout)
     if not has_gui_session():
         write_default_selection(ui_state)
         return
 
-    server = InstallerHTTPServer((args.host, args.port), ui_state=ui_state, timeout_seconds=args.timeout)
-    browser_thread = threading.Thread(target=open_browser, args=(url,), daemon=True)
-    browser_thread.start()
-    timeout_thread = threading.Thread(target=shutdown_after_timeout, args=(server, ui_state, args.timeout), daemon=True)
-    timeout_thread.start()
-    log(f'Installer UI listening on {url}')
-    server.serve_forever()
-    server.server_close()
-    log('Installer UI finished')
+    try:
+        render_ui(ui_state, args.host, args.port)
+    except Exception as exc:
+        log(f'Installer UI failed, falling back to default selection: {exc}')
+        if not ui_state.selection_path.exists():
+            write_default_selection(ui_state)
 
 
 if __name__ == '__main__':

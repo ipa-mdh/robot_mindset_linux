@@ -94,6 +94,7 @@ def load_config():
         'bios_grub_size': parse_size(data.get('bios_grub_size', '4M')),
         'efi_size': parse_size(data.get('efi_size', '1G')),
         'boot_size': parse_size(data.get('boot_size', '4G')),
+        'boot_size_text': data.get('boot_size_text', data.get('boot_size', '4G')),
         'boot_label': data.get('boot_label', 'BOOT'),
         'efi_label': data.get('efi_label', 'ESP'),
         'root_label': data.get('root_label', 'root'),
@@ -101,6 +102,11 @@ def load_config():
         'encryption_key': data.get('encryption_key', ''),
         'min_free_bytes': int(data.get('min_free_bytes', 40 * 1024 ** 3)),
         'prefer_ssd': bool(data.get('prefer_ssd', True)),
+        'environment': data.get('environment', ''),
+        'image': data.get('image', ''),
+        'source_id': data.get('source_id', ''),
+        'ssh_authorized_keys': data.get('ssh_authorized_keys', []) or [],
+        'linux_kernel_realtime': data.get('linux_kernel_realtime', {}) or {},
     }
     if not config['encryption_key']:
         fail('Encryption key missing in storage planner config.json')
@@ -657,8 +663,59 @@ def build_network_config(selection):
     return network
 
 
-def update_autoinstall(autoinstall_path, storage_config, network_config=None):
-    """Replace storage/network blocks in /autoinstall.yaml using YAML-aware editing."""
+def read_autoinstall(autoinstall_path):
+    path = Path(autoinstall_path)
+    if not path.exists():
+        fail(f'Cannot find autoinstall config at {autoinstall_path}')
+
+    try:
+        data = yaml.safe_load(path.read_text(encoding='utf-8'))
+    except yaml.YAMLError as exc:
+        fail(f'Could not parse {autoinstall_path} as YAML: {exc}')
+
+    if not isinstance(data, dict):
+        fail(f'Unexpected top-level YAML type in {autoinstall_path}: {type(data).__name__}')
+
+    return data.get('autoinstall') if isinstance(data.get('autoinstall'), dict) else data
+
+
+def extract_identity_entry(autoinstall_path):
+    autoinstall = read_autoinstall(autoinstall_path)
+    identity = autoinstall.get('identity', {}) or {}
+    return {
+        'hostname': identity.get('hostname', ''),
+        'realname': identity.get('realname', ''),
+        'username': identity.get('username', ''),
+        'password': identity.get('password', ''),
+    }
+
+
+def build_identity_config(selection, autoinstall_path):
+    current_identity = extract_identity_entry(autoinstall_path)
+    requested_identity = (selection or {}).get('identity') or {}
+    identity = dict(current_identity)
+    for key in ('hostname', 'realname', 'username', 'password'):
+        value = requested_identity.get(key)
+        if value:
+            identity[key] = value
+    return identity
+
+
+def overlay_config_with_selection(config, selection):
+    merged = dict(config)
+    storage = ((selection or {}).get('hardware') or {}).get('storage') or {}
+    password = storage.get('password')
+    if password:
+        merged['encryption_key'] = password
+    boot_size_text = storage.get('boot_size')
+    if boot_size_text:
+        merged['boot_size_text'] = boot_size_text
+        merged['boot_size'] = parse_size(boot_size_text)
+    return merged
+
+
+def update_autoinstall(autoinstall_path, storage_config, network_config=None, identity_config=None):
+    """Replace storage/network/identity blocks in /autoinstall.yaml using YAML-aware editing."""
     path = Path(autoinstall_path)
     if not path.exists():
         fail(f'Cannot find autoinstall config at {autoinstall_path}')
@@ -675,6 +732,8 @@ def update_autoinstall(autoinstall_path, storage_config, network_config=None):
     target['storage'] = storage_config
     if network_config:
         target['network'] = network_config
+    if identity_config:
+        target['identity'] = identity_config
 
     path.write_text(yaml.safe_dump(data, sort_keys=False), encoding='utf-8')
     log(f'Updated autoinstall file at {autoinstall_path} using yaml-rewrite')
@@ -746,23 +805,26 @@ def main():
     args = parser.parse_args()
 
     config = load_config()
-    disks = gather_disks(config["min_free_bytes"])
+    selection = load_selection(args.selection_file)
+    effective_config = overlay_config_with_selection(config, selection)
+
+    disks = gather_disks(effective_config["min_free_bytes"])
     if not disks:
         fail('No disk devices detected by lsblk')
 
-    candidates = collect_candidates(disks, config['min_free_bytes'], prefer_ssd=config['prefer_ssd'])
+    candidates = collect_candidates(disks, effective_config['min_free_bytes'], prefer_ssd=effective_config['prefer_ssd'])
     if not candidates:
         fail('No suitable disk or free space was found. At least 40GiB of unformatted space is required on an existing disk or an empty target disk must be available.')
 
-    selection = load_selection(args.selection_file)
     chosen_candidate = choose_candidate(candidates, selection)
     if not chosen_candidate:
         fail('No storage candidate could be selected')
 
-    plan = build_plan(chosen_candidate, config)
-    storage_config = build_storage_config(plan, config)
+    plan = build_plan(chosen_candidate, effective_config)
+    storage_config = build_storage_config(plan, effective_config)
     network_config = build_network_config(selection)
-    update_autoinstall(args.autoinstall, storage_config, network_config=network_config)
+    identity_config = build_identity_config(selection, args.autoinstall)
+    update_autoinstall(args.autoinstall, storage_config, network_config=network_config, identity_config=identity_config)
     write_debug(plan, disks, candidates, selection)
     log(f"Selected {chosen_candidate['path']} using scenario {plan['scenario']}")
 

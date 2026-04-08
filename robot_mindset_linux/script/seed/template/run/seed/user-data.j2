@@ -190,6 +190,9 @@ autoinstall:
     - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
     - mkdir -p /target/robot_mindset
     - tar -C /target/robot_mindset -xf /mnt/seed/target-data.tar
+    - |
+      echo "[robot-mindset] applying installer selection to extracted target payload" >> /var/log/installer/robot_mindset-installer_ui.log
+      python3 /target/robot_mindset/data/autoinstall/bin/apply_installer_selection.py --selection-file /autoinstall-working/robot_mindset_installer_selection.json --target-root /target/robot_mindset >> /var/log/installer/robot_mindset-installer_ui.log 2>&1
     # --- additional late-commands ---
 {%- if args.autoinstall.late_commands is defined %}
   {%- for item in args.autoinstall.late_commands %}
