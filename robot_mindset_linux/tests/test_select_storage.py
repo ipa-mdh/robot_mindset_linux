@@ -2,6 +2,7 @@ import importlib.util
 import json
 import sys
 import tarfile
+import zipfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -191,6 +192,21 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
 
 
 class InstallerUiBundleTests(unittest.TestCase):
+    def test_extract_wheelhouse_unpacks_purelib_and_platlib_payloads(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            wheelhouse_dir = tmp / 'wheelhouse'
+            runtime_dir = tmp / 'runtime'
+            wheelhouse_dir.mkdir()
+            runtime_dir.mkdir()
+            wheel_path = wheelhouse_dir / 'demo-1.0.0-py3-none-any.whl'
+            with zipfile.ZipFile(wheel_path, 'w') as archive:
+                archive.writestr('demo/__init__.py', 'value = 1\n')
+                archive.writestr('demo.data/purelib/exceptiongroup/__init__.py', 'class ExceptionGroup(Exception):\n    pass\n')
+            installer_ui_bundle._extract_wheelhouse(wheelhouse_dir, runtime_dir)
+            self.assertTrue((runtime_dir / 'demo/__init__.py').exists())
+            self.assertTrue((runtime_dir / 'exceptiongroup/__init__.py').exists())
+
     def test_prepare_installer_ui_bundle_downloads_all_supported_runtimes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -205,18 +221,16 @@ class InstallerUiBundleTests(unittest.TestCase):
             self.assertTrue(runtime_root.exists())
             self.assertTrue((runtime_root / 'cp310').exists())
             self.assertTrue((runtime_root / 'cp312').exists())
-            self.assertEqual(run_mock.call_count, 4)
+            self.assertEqual(run_mock.call_count, 2)
             commands = [call.args[0] for call in run_mock.call_args_list]
             self.assertEqual(commands[0][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
-            self.assertEqual(commands[1][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
-            self.assertEqual(commands[2][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
-            self.assertEqual(commands[3][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
+            self.assertEqual(commands[1][:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
             self.assertIn('310', commands[0])
             self.assertIn('cp310', commands[0])
-            self.assertIn('312', commands[2])
-            self.assertIn('cp312', commands[2])
-            self.assertTrue(any(str(cache_dir / 'cp310' / installer_ui_bundle.WHEELHOUSE_DIRNAME) in part for part in commands[1]))
-            self.assertTrue(any(str(cache_dir / 'cp312' / installer_ui_bundle.WHEELHOUSE_DIRNAME) in part for part in commands[3]))
+            self.assertIn(str(cache_dir / 'cp310' / installer_ui_bundle.WHEELHOUSE_DIRNAME), commands[0])
+            self.assertIn('312', commands[1])
+            self.assertIn('cp312', commands[1])
+            self.assertIn(str(cache_dir / 'cp312' / installer_ui_bundle.WHEELHOUSE_DIRNAME), commands[1])
             self.assertEqual(run_mock.call_args.kwargs['env']['PYTHONNOUSERSITE'], '1')
             self.assertEqual(run_mock.call_args.kwargs['env']['PIP_DISABLE_PIP_VERSION_CHECK'], '1')
             self.assertEqual(run_mock.call_args.kwargs['env']['PIP_NO_INPUT'], '1')

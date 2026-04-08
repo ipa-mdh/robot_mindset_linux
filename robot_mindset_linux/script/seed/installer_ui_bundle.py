@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import tempfile
+import zipfile
 from pathlib import Path
 
 
@@ -21,7 +23,7 @@ RUNTIME_ARCHIVE_FILENAME = 'installer-ui-site-packages.tar'
 TARGET_PLATFORM = 'manylinux2014_x86_64'
 TARGET_IMPLEMENTATION = 'cp'
 SUPPORTED_TARGET_PYTHONS = ('3.8', '3.10', '3.12')
-BUNDLE_FORMAT_VERSION = 2
+BUNDLE_FORMAT_VERSION = 3
 
 
 def _python_abi_tag(version: str) -> str:
@@ -78,6 +80,42 @@ def _extract_runtime(archive_path: Path, runtime_site_packages_dir: Path) -> Non
         tar.extractall(runtime_site_packages_dir)
 
 
+def _copy_tree_contents(source_dir: Path, destination_dir: Path) -> None:
+    for child in source_dir.iterdir():
+        destination = destination_dir / child.name
+        if child.is_dir():
+            shutil.copytree(child, destination, dirs_exist_ok=True)
+        else:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(child, destination)
+
+
+def _extract_wheel(wheel_path: Path, runtime_site_packages_dir: Path) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        extract_root = Path(tmpdir)
+        with zipfile.ZipFile(wheel_path) as archive:
+            archive.extractall(extract_root)
+
+        for child in extract_root.iterdir():
+            if child.name.endswith('.data') and child.is_dir():
+                for scheme in ('purelib', 'platlib'):
+                    scheme_dir = child / scheme
+                    if scheme_dir.is_dir():
+                        _copy_tree_contents(scheme_dir, runtime_site_packages_dir)
+                continue
+            destination = runtime_site_packages_dir / child.name
+            if child.is_dir():
+                shutil.copytree(child, destination, dirs_exist_ok=True)
+            else:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(child, destination)
+
+
+def _extract_wheelhouse(wheelhouse_dir: Path, runtime_site_packages_dir: Path) -> None:
+    for wheel_path in sorted(wheelhouse_dir.glob('*.whl')):
+        _extract_wheel(wheel_path, runtime_site_packages_dir)
+
+
 def _pip_target_args(version: str) -> list[str]:
     return [
         '--platform', TARGET_PLATFORM,
@@ -124,29 +162,7 @@ def _prepare_runtime_for_version(
         env=pip_env,
         check=True,
     )
-    subprocess.run(
-        [
-            sys.executable,
-            '-m',
-            'pip',
-            'install',
-            '--isolated',
-            *target_args,
-            '--ignore-installed',
-            '--no-index',
-            f'--find-links={wheelhouse_dir}',
-            '--target',
-            str(runtime_site_packages_dir),
-            '--requirement',
-            str(REQUIREMENTS_PATH),
-            '--only-binary=:all:',
-            '--no-compile',
-            '--upgrade',
-            '--no-warn-script-location',
-        ],
-        env=pip_env,
-        check=True,
-    )
+    _extract_wheelhouse(wheelhouse_dir, runtime_site_packages_dir)
     _archive_runtime(runtime_site_packages_dir, runtime_archive_path)
 
 
