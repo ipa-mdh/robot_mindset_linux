@@ -89,6 +89,30 @@ class StepCreateSeed:
         minutes, seconds = divmod(max(0, int(elapsed_seconds)), 60)
         return f'{minutes:02d}:{seconds:02d}'
 
+    def _seed_iso_path(self) -> Path | None:
+        data = getattr(self, 'data', None)
+        if data is None or getattr(data, 'work_dir', None) is None:
+            return None
+        return Path(data.work_dir) / 'seed.iso'
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        size = float(max(0, size_bytes))
+        units = ('B', 'KiB', 'MiB', 'GiB', 'TiB')
+        unit = units[0]
+        for unit in units:
+            if size < 1024.0 or unit == units[-1]:
+                break
+            size /= 1024.0
+        if unit == 'B':
+            return f'{int(size)} {unit}'
+        return f'{size:.1f} {unit}'
+
+    def _seed_iso_size_text(self) -> str:
+        seed_iso_path = self._seed_iso_path()
+        if seed_iso_path is None or not seed_iso_path.exists():
+            return ''
+        return self._format_file_size(seed_iso_path.stat().st_size)
+
     def _compute_progress_snapshot(self, now: float | None = None) -> dict:
         current_time = time.monotonic() if now is None else now
         elapsed_seconds = 0
@@ -99,6 +123,8 @@ class StepCreateSeed:
 
         current_step = self._current_step or ('Preparing output' if self._is_creating_seed else 'Not started')
 
+        iso_size_text = ''
+
         if self._is_creating_seed:
             state = 'running'
             title = 'Creating seed ISO'
@@ -107,6 +133,7 @@ class StepCreateSeed:
             state = 'success'
             current_step = 'Finished'
             title = 'Seed ISO created'
+            iso_size_text = self._seed_iso_size_text()
             detail = 'Current step: Finished'
         elif self._timed_out:
             state = 'timeout'
@@ -128,6 +155,7 @@ class StepCreateSeed:
             'current_step': current_step,
             'elapsed_seconds': elapsed_seconds,
             'elapsed_text': self._format_elapsed(elapsed_seconds),
+            'iso_size_text': iso_size_text,
             'is_slow': self._is_creating_seed and elapsed_seconds >= self.SLOW_BUILD_SECONDS,
         }
 
@@ -189,6 +217,13 @@ class StepCreateSeed:
         self.progress_title.set_text(snapshot['title'])
         self.current_step_label.set_text(snapshot['detail'])
         self.elapsed_label.set_text(f"Elapsed time: {snapshot['elapsed_text']}")
+        if snapshot['iso_size_text']:
+            self.iso_size_label.set_text(f"Seed ISO size: {snapshot['iso_size_text']}")
+            self.iso_size_label.visible = True
+        else:
+            self.iso_size_label.set_text('')
+            self.iso_size_label.visible = False
+        self.iso_size_label.update()
 
         if snapshot['state'] == 'timeout':
             self.warning_label.set_text('The build was canceled after 20 minutes.')
@@ -306,6 +341,8 @@ class StepCreateSeed:
                     self.progress_title = ui.label('Ready to create seed ISO').classes('text-lg')
                     self.current_step_label = ui.label('Current step: not started').classes('text-sm')
                     self.elapsed_label = ui.label('Elapsed time: 00:00').classes('text-sm')
+                    self.iso_size_label = ui.label('').classes('text-sm')
+                    self.iso_size_label.visible = False
                     ui.label('Typical runtime: about 1 minute').classes('text-sm text-gray-600')
                     ui.label('Automatic timeout: 20 minutes').classes('text-sm text-gray-600')
                     self.warning_label = ui.label('').classes('text-sm text-orange-700')

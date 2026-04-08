@@ -99,6 +99,7 @@ class SeedProgressTests(unittest.TestCase):
         step.current_step_label = FakeLabel()
         step.elapsed_label = FakeLabel()
         step.warning_label = FakeLabel()
+        step.iso_size_label = FakeLabel()
         step._step_labels = {name: FakeLabel() for name in StepCreateSeed.BUILD_STEPS}
         step._started_at = None
         step._current_step = ''
@@ -147,6 +148,24 @@ class SeedProgressTests(unittest.TestCase):
         self.assertEqual(snapshot['elapsed_text'], '01:05')
         self.assertEqual(snapshot['current_step'], 'Finished')
 
+    def test_step_create_seed_reports_iso_size_after_success(self):
+        step = StepCreateSeed.__new__(StepCreateSeed)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / 'seed.iso').write_bytes(b'x' * (5 * 1024 * 1024))
+            step.data = type('Data', (), {'work_dir': work_dir})()
+            step._is_creating_seed = False
+            step._started_at = 100.0
+            step._finished_at = 165.0
+            step._current_step = 'Finished'
+            step._timed_out = False
+            step._success = True
+            step._failed_message = ''
+
+            snapshot = StepCreateSeed._compute_progress_snapshot(step, now=500.0)
+
+        self.assertEqual(snapshot['iso_size_text'], '5.0 MiB')
+
     def test_step_create_seed_timeout_result_cancels_build_state(self):
         step = StepCreateSeed.__new__(StepCreateSeed)
         step.spinner = FakeControl()
@@ -156,6 +175,7 @@ class SeedProgressTests(unittest.TestCase):
         step.current_step_label = FakeLabel()
         step.elapsed_label = FakeLabel()
         step.warning_label = FakeLabel()
+        step.iso_size_label = FakeLabel()
         step._step_labels = {name: FakeLabel() for name in StepCreateSeed.BUILD_STEPS}
         step._is_creating_seed = True
         step._started_at = 0.0
