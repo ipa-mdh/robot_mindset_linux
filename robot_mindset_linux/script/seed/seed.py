@@ -148,7 +148,7 @@ def main(base_context: dict,
     prepare_offline_bundle(seed_data_dir=output_dir / 'seed/data', context=context)
 
     _report_progress(progress_callback, 'Bundling installer UI')
-    prepare_installer_ui_bundle(output_dir / 'seed/data/autoinstall')
+    prepare_installer_ui_bundle(output_dir / 'seed/data/autoinstall', context=context)
 
     _report_progress(progress_callback, 'Archiving payloads')
     archive_seed_payloads(output_dir / 'seed/data')

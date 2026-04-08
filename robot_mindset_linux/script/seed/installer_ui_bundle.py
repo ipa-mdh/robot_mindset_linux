@@ -18,21 +18,59 @@ DEFAULT_CACHE_ROOT = Path(
 )
 WHEELHOUSE_DIRNAME = 'wheelhouse'
 RUNTIME_ARCHIVE_FILENAME = 'installer-ui-site-packages.tar'
+TARGET_PLATFORM = 'manylinux2014_x86_64'
+TARGET_IMPLEMENTATION = 'cp'
+TARGET_PYTHON_BY_ENVIRONMENT = {
+    '20.04': '3.8',
+    '22.04': '3.10',
+    '24.04': '3.12',
+}
+TARGET_PYTHON_BY_RELEASE = {
+    'focal': '3.8',
+    'jammy': '3.10',
+    'noble': '3.12',
+}
 
 
-def _bundle_signature() -> str:
+def _target_python_version(context: dict | None) -> str:
+    if context:
+        ubuntu_release = str(context.get('ubuntu_release') or '').strip()
+        if ubuntu_release in TARGET_PYTHON_BY_RELEASE:
+            return TARGET_PYTHON_BY_RELEASE[ubuntu_release]
+
+        environment = str(context.get('environment') or '').strip()
+        if environment in TARGET_PYTHON_BY_ENVIRONMENT:
+            return TARGET_PYTHON_BY_ENVIRONMENT[environment]
+
+    return f'{sys.version_info.major}.{sys.version_info.minor}'
+
+
+def _python_abi_tag(version: str) -> str:
+    major, minor = version.split('.', 1)
+    return f'cp{major}{minor}'
+
+
+def _python_version_digits(version: str) -> str:
+    major, minor = version.split('.', 1)
+    return f'{major}{minor}'
+
+
+def _bundle_signature(context: dict | None) -> str:
+    target_python = _target_python_version(context)
     payload = {
         'requirements': REQUIREMENTS_PATH.read_text(encoding='utf-8'),
-        'python': f'{sys.version_info.major}.{sys.version_info.minor}',
-        'platform': sys.platform,
+        'target_python': target_python,
+        'target_abi': _python_abi_tag(target_python),
+        'platform': TARGET_PLATFORM,
+        'implementation': TARGET_IMPLEMENTATION,
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode('utf-8')).hexdigest()
 
 
-def _resolve_cache_dir(cache_dir: Path | None) -> Path:
+def _resolve_cache_dir(context: dict | None, cache_dir: Path | None) -> Path:
     if cache_dir is not None:
         return Path(cache_dir)
-    return DEFAULT_CACHE_ROOT / _bundle_signature()
+    return DEFAULT_CACHE_ROOT / _bundle_signature(context)
 
 
 def _build_pip_env() -> dict[str, str]:
@@ -57,7 +95,21 @@ def _extract_runtime(archive_path: Path, runtime_site_packages_dir: Path) -> Non
         tar.extractall(runtime_site_packages_dir)
 
 
-def prepare_installer_ui_bundle(autoinstall_dir: Path, cache_dir: Path | None = None) -> Path:
+def _pip_target_args(context: dict | None) -> list[str]:
+    target_python = _target_python_version(context)
+    return [
+        '--platform', TARGET_PLATFORM,
+        '--implementation', TARGET_IMPLEMENTATION,
+        '--python-version', _python_version_digits(target_python),
+        '--abi', _python_abi_tag(target_python),
+    ]
+
+
+def prepare_installer_ui_bundle(
+    autoinstall_dir: Path,
+    context: dict | None = None,
+    cache_dir: Path | None = None,
+) -> Path:
     """Pre-install the offline Python runtime for the installer NiceGUI UI."""
     autoinstall_dir = Path(autoinstall_dir)
     if not REQUIREMENTS_PATH.exists():
@@ -66,9 +118,10 @@ def prepare_installer_ui_bundle(autoinstall_dir: Path, cache_dir: Path | None = 
     autoinstall_dir.mkdir(parents=True, exist_ok=True)
     runtime_requirements_path = autoinstall_dir / RUNTIME_REQUIREMENTS_FILENAME
     runtime_site_packages_dir = autoinstall_dir / RUNTIME_SITE_PACKAGES_DIRNAME
-    resolved_cache_dir = _resolve_cache_dir(cache_dir)
+    resolved_cache_dir = _resolve_cache_dir(context, cache_dir)
     wheelhouse_dir = resolved_cache_dir / WHEELHOUSE_DIRNAME
     runtime_archive_path = resolved_cache_dir / RUNTIME_ARCHIVE_FILENAME
+    target_args = _pip_target_args(context)
 
     runtime_requirements_path.write_text(REQUIREMENTS_PATH.read_text(encoding='utf-8'), encoding='utf-8')
 
@@ -89,6 +142,7 @@ def prepare_installer_ui_bundle(autoinstall_dir: Path, cache_dir: Path | None = 
             'pip',
             'download',
             '--isolated',
+            *target_args,
             '--dest',
             str(wheelhouse_dir),
             '--requirement',
@@ -105,6 +159,7 @@ def prepare_installer_ui_bundle(autoinstall_dir: Path, cache_dir: Path | None = 
             'pip',
             'install',
             '--isolated',
+            *target_args,
             '--ignore-installed',
             '--no-index',
             f'--find-links={wheelhouse_dir}',
