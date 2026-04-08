@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: ipa-mdh
+  description: Install Visual Studio Code from the local offline repository.
+  license: MIT
+  min_ansible_version: '2.13'
+dependencies: []

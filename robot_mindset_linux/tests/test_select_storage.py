@@ -10,9 +10,9 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SELECT_STORAGE_PATH = REPO_ROOT / 'script/seed/template/dev/seed/data/autoinstall/bin/select_storage.py'
-APPLY_SELECTION_PATH = REPO_ROOT / 'script/seed/template/dev/seed/data/autoinstall/bin/apply_installer_selection.py'
-INSTALLER_UI_PATH = REPO_ROOT / 'script/seed/template/dev/seed/data/autoinstall/bin/installer_ui.py'
+SELECT_STORAGE_PATH = REPO_ROOT / 'script/seed/template/24_04/seed/data/autoinstall/bin/select_storage.py'
+APPLY_SELECTION_PATH = REPO_ROOT / 'script/seed/template/24_04/seed/data/autoinstall/bin/apply_installer_selection.py'
+INSTALLER_UI_PATH = REPO_ROOT / 'script/seed/template/24_04/seed/data/autoinstall/bin/installer_ui.py'
 BUNDLE_PATH = REPO_ROOT / 'script/seed/installer_ui_bundle.py'
 
 

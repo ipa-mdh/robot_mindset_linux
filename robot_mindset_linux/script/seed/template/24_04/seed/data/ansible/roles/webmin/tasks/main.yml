@@ -1,0 +1,6 @@
+---
+- name: Install Webmin packages from local offline repository
+  become: true
+  ansible.builtin.apt:
+    name: "{{ webmin_packages }}"
+    state: present

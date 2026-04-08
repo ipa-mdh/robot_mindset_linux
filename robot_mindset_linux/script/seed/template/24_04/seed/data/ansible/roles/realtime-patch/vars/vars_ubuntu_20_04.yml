@@ -1,0 +1,10 @@
+---
+packages_to_install:
+  - libelf-dev
+  - libncurses5-dev 
+  - libssl-dev 
+  - kernel-package 
+  - flex 
+  - bison
+  - dwarves
+  - zstd

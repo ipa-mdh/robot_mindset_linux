@@ -1,27 +1,30 @@
-environment: dev
+environment: 24.04
 
 environments:
-  - environment: dev
-    default: true
-    label: Ubuntu 24.04.2 Desktop (dev) AMD64
-    image: ubuntu-24.04.2-desktop-amd64.iso
-    ubuntu_release: noble
-    autoinstall: 
+  - environment: 20.04
+    label: Ubuntu 20.04.6 Desktop AMD64
+    image: ubuntu-20.04.6-desktop-amd64.iso
+    ubuntu_release: focal
+    autoinstall:
       source:
         id: ubuntu-desktop-minimal
-    # data:
-    #   debs: data/dev/debs
-      # ansible: data/dev/ansible
 
-  - environment: prod
-    label: Ubuntu 22.04.5 Server (prod) AMD64
-    image: ubuntu-22.04.5-live-server-amd64.iso
+  - environment: 22.04
+    label: Ubuntu 22.04.5 Desktop AMD64
+    image: ubuntu-22.04.5-desktop-amd64.iso
     ubuntu_release: jammy
-    autoinstall: 
+    autoinstall:
       source:
-        id: ubuntu-server-minimal
-    # data:
-    #   debs: data/run/debs
+        id: ubuntu-desktop-minimal
+
+  - environment: 24.04
+    default: true
+    label: Ubuntu 24.04.2 Desktop AMD64
+    image: ubuntu-24.04.2-desktop-amd64.iso
+    ubuntu_release: noble
+    autoinstall:
+      source:
+        id: ubuntu-desktop-minimal
 
 networks:
   - name: public
@@ -43,11 +46,10 @@ autoinstall:
     boot:
       size: 9G
 
-    
   packages:
     - magic-wormhole
     - docker-buildx
-    ## --- dev --- 
+    ## --- desktop tooling ---
     - git
     - python3
     - python3-pip

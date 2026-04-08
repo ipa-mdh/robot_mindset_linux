@@ -1,0 +1,202 @@
+#cloud-config
+datasource_list: [ NoCloud, None ]
+# See the autoinstall documentation at:
+# https://canonical-subiquity.readthedocs-hosted.com/en/latest/reference/autoinstall-reference.html
+autoinstall:
+  apt:
+    disable_components: []
+    fallback: offline-install
+    geoip: false
+  codecs:
+    install: false
+  drivers:
+    install: false
+  identity:
+    hostname: {{ args.autoinstall.identitiy.hostname }}
+    password: {{ args.autoinstall.identitiy.password }}
+    realname: {{ args.autoinstall.identitiy.realname }}
+    username: {{ args.autoinstall.identitiy.username }}
+  refresh-installer:
+    update: false
+  keyboard:
+    layout: de
+    toggle: null
+    variant: ''
+  locale: en_US.UTF-8
+  timezone: "Europe/Berlin"
+  {%- if args.networks is defined %}
+  network:
+    version: 2
+    ethernets:
+    {%- for item in args.networks %}
+      {{ item.name }}:
+        match:
+          macaddress: {{ item.match.macaddress }}
+        set-name: {{ item.name }}
+    {%- if item.ipv4 is defined %}
+        dhcp4: false
+        addresses:
+          - {{ item.ipv4 }}
+    {%- if item.gateway4 is defined %}
+        routes:
+          - to: default
+            via: {{ item.gateway4 }}
+    {%- endif %}
+    {%- if item.nameservers is defined %}
+        nameservers:
+          addresses:
+      {%- for nameserver in item.nameservers %}
+            - {{ nameserver }}
+      {%- endfor %}
+    {%- endif %}
+    {%- else %}
+        dhcp4: true
+    {%- endif %}
+    {%- endfor %}
+  {%- endif %}
+  # network:
+  #   ethernets:
+  #     ens18:
+  #       addresses:
+  #       - 192.168.178.30/24
+  #       nameservers:
+  #         addresses: []
+  #         search: [9.9.9.9]
+  #       routes:
+  #       - to: default
+  #         via: 192.168.178.1
+  #   version: 2
+  source:
+    id: {{ args.autoinstall.source.id }}
+    search_drivers: false
+  ssh:
+    allow-pw: false
+    authorized-keys: []
+    install-server: false
+  storage:
+    # robot_mindset_storage_begin
+    version: 1
+    config:
+    # 1) Wipe disk, GPT, and mark for grub
+    - type: disk
+      id: disk0
+      ptable: gpt
+      preserve: false
+      wipe: superblock-recursive
+      grub_device: true
+
+    # grub partition
+    - type: partition
+      id: grub-part
+      number: 1
+      device: disk0
+      size: 4M
+      flag: bios_grub
+      wipe: superblock
+      preserve: false
+      grub_device: false
+
+    # 2.1) EFI System Partition
+    - type: partition
+      id: efi-part
+      number: 2
+      device: disk0
+      size: 1G
+      flag: boot
+      preserve: false
+      wipe: superblock
+      grub_device: UEFI
+    - type: format
+      id: efi-format
+      volume: efi-part
+      fstype: fat32
+      label: ESP
+      preserve: false
+    - type: mount
+      id: efi-mount
+      device: efi-format
+      path: /boot/efi
+
+    # 2.2) Boot Partition
+    - type: partition
+      id: boot-part
+      number: 3
+      device: disk0
+      size: {{ args.autoinstall.storage.boot.size }}
+      wipe: superblock
+      grub_device: false
+      preserve: false
+    - type: format
+      id: boot-format
+      volume: boot-part
+      fstype: ext4
+      label: BOOT
+    - type: mount
+      id: boot-mount
+      path: /boot
+      device: boot-format
+
+    # 3) Encrypted root on the rest
+    - type: partition
+      id: crypt-part
+      number: 4
+      device: disk0
+      size: -1         # rest of disk
+      wipe: superblock
+      grub_device: false
+      preserve: false
+
+    - type: dm_crypt
+      id: crypt-root
+      volume: crypt-part
+      dm_name: crypt-root
+      key: {{ args.autoinstall.storage.password }}
+
+    - type: format
+      id: root-fmt
+      fstype: btrfs
+      label: root
+      volume: crypt-root
+
+    - type: mount
+      id: root-mount
+      path: /
+      device: root-fmt
+    # robot_mindset_storage_end
+  early-commands:
+    - mkdir -p /mnt/seed
+    - mkdir -p /var/log/installer
+    - mkdir -p /autoinstall-working/robot_mindset_seed
+    - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
+    - tar -C /autoinstall-working/robot_mindset_seed -xf /mnt/seed/early-data.tar
+    - |
+      echo "[robot-mindset] running installer_ui.py" >> /var/log/installer/robot_mindset-installer_ui.log
+      python3 /autoinstall-working/robot_mindset_seed/data/autoinstall/bin/installer_ui.py --autoinstall /autoinstall.yaml --selection-file /autoinstall-working/robot_mindset_installer_selection.json >> /var/log/installer/robot_mindset-installer_ui.log 2>&1
+    - |
+      echo "[robot-mindset] running select_storage.py" >> /var/log/installer/robot_mindset-select_storage.log
+      python3 /autoinstall-working/robot_mindset_seed/data/autoinstall/bin/select_storage.py --autoinstall /autoinstall.yaml --selection-file /autoinstall-working/robot_mindset_installer_selection.json >> /var/log/installer/robot_mindset-select_storage.log 2>&1
+    - |
+      if [ -e "/sys/firmware/efi" ]; then
+        sed -i -e "s/grub_device: UEFI/grub_device: true/" /autoinstall.yaml
+      else
+        sed -i -e "s/grub_device: UEFI/grub_device: false/" /autoinstall.yaml
+      fi
+  # The type of updates that will be downloaded and installed after the system installation, and before rebooting into the target system
+  updates: security
+  version: 1
+  late-commands: 
+    # --- extract data folder tarball into the target system ---
+    - mkdir -p /mnt/seed
+    - mountpoint -q /mnt/seed || mount -L CIDATA /mnt/seed
+    - mkdir -p /target/robot_mindset
+    - tar -C /target/robot_mindset -xf /mnt/seed/target-data.tar
+    - |
+      echo "[robot-mindset] applying installer selection to extracted target payload" >> /var/log/installer/robot_mindset-installer_ui.log
+      python3 /target/robot_mindset/data/autoinstall/bin/apply_installer_selection.py --selection-file /autoinstall-working/robot_mindset_installer_selection.json --target-root /target/robot_mindset >> /var/log/installer/robot_mindset-installer_ui.log 2>&1
+    # --- additional late-commands ---
+{%- if args.autoinstall.late_commands is defined %}
+  {%- for item in args.autoinstall.late_commands %}
+    - {{ item }}
+  {%- endfor %}
+{%- endif %}
+    # ~~~ additional late-commands ~~~

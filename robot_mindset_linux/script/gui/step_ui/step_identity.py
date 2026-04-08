@@ -3,6 +3,11 @@ import crypt
 from pathlib import Path
 from nicegui import ui
 from loguru import logger
+from utils.environment_targets import (
+    DEFAULT_ENVIRONMENT,
+    build_environment_targets,
+    canonical_environment_name,
+)
 
 
 def hash_password(password):
@@ -16,6 +21,8 @@ class StepIdentity:
     def __init__(self, config):
         self.config = config
         self.DEFAULT_PASSWORD = 'setup'
+        self.config['environments'] = build_environment_targets(self.config.get('environments'))
+        self.config['environment'] = canonical_environment_name(self.config.get('environment'))
         self.environment_map = self._build_environment_map()
         logger.debug(self.environment_map)
         self._render()
@@ -41,12 +48,12 @@ class StepIdentity:
 
         edition = edition.replace('amd64', '').replace('live', '').strip('-_ ')
         edition = ' '.join(word.capitalize() for word in edition.split('-') if word)
-        details = ' '.join(part for part in [f'Ubuntu {version}'.strip(), edition, f'({environment_name})' if environment_name else '', arch.upper() if arch else ''] if part)
+        details = ' '.join(part for part in [f'Ubuntu {version}'.strip(), edition, arch.upper() if arch else ''] if part)
         return details or environment_name or image_name
 
     def _build_environment_map(self) -> dict[str, dict]:
         environment_map: dict[str, dict] = {}
-        for env in self.config.get('environments', []):
+        for env in build_environment_targets(self.config.get('environments')):
             name = env.get('environment', '')
             if not name:
                 continue
@@ -58,15 +65,10 @@ class StepIdentity:
         return environment_map
 
     def _get_default_environment(self) -> str:
-        configured_environment = self.config.get('environment')
+        configured_environment = canonical_environment_name(self.config.get('environment'))
         if configured_environment in self.environment_map:
             return configured_environment
-
-        for name, data in self.environment_map.items():
-            if data.get('default'):
-                return name
-
-        return next(iter(self.environment_map), 'dev')
+        return next(iter(self.environment_map), DEFAULT_ENVIRONMENT)
 
     def _render(self):
         with ui.card():
@@ -99,4 +101,5 @@ class StepIdentity:
         self.config['autoinstall']['identitiy']['realname'] = self.realname.value
         self.config['autoinstall']['identitiy']['username'] = self.username.value
         self.config['autoinstall']['identitiy']['password'] = hash_password(self.password.value)
-        self.config['environment'] = self.environment_input.value
+        self.config['environments'] = build_environment_targets(self.config.get('environments'))
+        self.config['environment'] = canonical_environment_name(self.environment_input.value)
