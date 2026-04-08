@@ -285,11 +285,25 @@ def open_browser(url):
 def ensure_installer_runtime():
     if not RUNTIME_SITE_PACKAGES_PATH.is_dir():
         raise RuntimeError(f'Missing installer runtime site-packages: {RUNTIME_SITE_PACKAGES_PATH}')
-    if str(RUNTIME_SITE_PACKAGES_PATH) in sys.path:
-        return
     if not RUNTIME_REQUIREMENTS_PATH.exists():
         log(f'Installer runtime requirements file is missing: {RUNTIME_REQUIREMENTS_PATH}')
-    site.addsitedir(str(RUNTIME_SITE_PACKAGES_PATH))
+
+    runtime_site_packages = str(RUNTIME_SITE_PACKAGES_PATH)
+    previous_paths = tuple(sys.path)
+    if runtime_site_packages in sys.path:
+        sys.path.remove(runtime_site_packages)
+    site.addsitedir(runtime_site_packages)
+
+    # Keep bundled dependencies ahead of Ubuntu dist-packages so the offline runtime wins.
+    prioritized_paths = []
+    for path in sys.path:
+        if path == runtime_site_packages or path not in previous_paths:
+            if path not in prioritized_paths:
+                prioritized_paths.append(path)
+    for path in reversed(prioritized_paths):
+        while path in sys.path:
+            sys.path.remove(path)
+        sys.path.insert(0, path)
 
 
 def extract_network_entries(autoinstall_path):

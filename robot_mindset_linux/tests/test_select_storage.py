@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -190,39 +191,76 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
 
 
 class InstallerUiBundleTests(unittest.TestCase):
-    def test_prepare_installer_ui_bundle_installs_site_packages_and_copies_requirements(self):
+    def test_prepare_installer_ui_bundle_downloads_to_cache_and_installs_offline(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            autoinstall_dir = Path(tmpdir) / 'autoinstall'
-            requirements_path = Path(tmpdir) / 'requirements.txt'
+            tmp = Path(tmpdir)
+            autoinstall_dir = tmp / 'autoinstall'
+            cache_dir = tmp / 'cache'
+            requirements_path = tmp / 'requirements.txt'
             requirements_path.write_text('nicegui==1.4.26\n', encoding='utf-8')
             with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path):
                 with mock.patch.object(installer_ui_bundle.subprocess, 'run') as run_mock:
-                    runtime_dir = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir)
+                    runtime_dir = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir, cache_dir=cache_dir)
             self.assertTrue((autoinstall_dir / installer_ui_bundle.RUNTIME_REQUIREMENTS_FILENAME).exists())
             self.assertTrue(runtime_dir.exists())
-            command = run_mock.call_args.args[0]
-            self.assertEqual(command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
-            self.assertIn('--isolated', command)
-            self.assertIn('--ignore-installed', command)
-            self.assertIn('--target', command)
-            self.assertIn(str(runtime_dir), command)
-            self.assertIn('--only-binary=:all:', command)
-            self.assertIn('--no-compile', command)
+            self.assertEqual(run_mock.call_count, 2)
+            download_command = run_mock.call_args_list[0].args[0]
+            install_command = run_mock.call_args_list[1].args[0]
+            self.assertEqual(download_command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'download'])
+            self.assertIn('--isolated', download_command)
+            self.assertIn('--dest', download_command)
+            self.assertIn(str(cache_dir / installer_ui_bundle.WHEELHOUSE_DIRNAME), download_command)
+            self.assertEqual(install_command[:4], [installer_ui_bundle.sys.executable, '-m', 'pip', 'install'])
+            self.assertIn('--isolated', install_command)
+            self.assertIn('--ignore-installed', install_command)
+            self.assertIn('--no-index', install_command)
+            self.assertTrue(any(str(cache_dir / installer_ui_bundle.WHEELHOUSE_DIRNAME) in part for part in install_command))
+            self.assertIn('--target', install_command)
+            self.assertIn(str(runtime_dir), install_command)
             self.assertEqual(run_mock.call_args.kwargs['env']['PYTHONNOUSERSITE'], '1')
             self.assertEqual(run_mock.call_args.kwargs['env']['PIP_DISABLE_PIP_VERSION_CHECK'], '1')
             self.assertEqual(run_mock.call_args.kwargs['env']['PIP_NO_INPUT'], '1')
 
-    def test_ensure_installer_runtime_adds_bundled_site_packages(self):
+    def test_prepare_installer_ui_bundle_reuses_cached_runtime_archive(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            autoinstall_dir = tmp / 'autoinstall'
+            cache_dir = tmp / 'cache'
+            requirements_path = tmp / 'requirements.txt'
+            requirements_path.write_text('nicegui==1.4.26\n', encoding='utf-8')
+            archive_path = cache_dir / installer_ui_bundle.RUNTIME_ARCHIVE_FILENAME
+            archive_path.parent.mkdir(parents=True, exist_ok=True)
+            sample_root = tmp / 'sample-runtime'
+            sample_file = sample_root / 'typing_extensions.py'
+            sample_file.parent.mkdir(parents=True, exist_ok=True)
+            sample_file.write_text('Self = object\n', encoding='utf-8')
+            with tarfile.open(archive_path, 'w') as tar:
+                tar.add(sample_file, arcname='typing_extensions.py')
+
+            with mock.patch.object(installer_ui_bundle, 'REQUIREMENTS_PATH', requirements_path):
+                with mock.patch.object(installer_ui_bundle.subprocess, 'run') as run_mock:
+                    runtime_dir = installer_ui_bundle.prepare_installer_ui_bundle(autoinstall_dir, cache_dir=cache_dir)
+            self.assertEqual(run_mock.call_count, 0)
+            self.assertTrue((runtime_dir / 'typing_extensions.py').exists())
+
+    def test_ensure_installer_runtime_prioritizes_bundled_site_packages(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
             requirements = tmp / 'requirements.txt'
             runtime_site_packages = tmp / 'site-packages'
             requirements.write_text('nicegui==1.4.26\n', encoding='utf-8')
             runtime_site_packages.mkdir()
-            with mock.patch.object(installer_ui, 'RUNTIME_REQUIREMENTS_PATH', requirements), \
-                 mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_PATH', runtime_site_packages), \
-                 mock.patch.object(installer_ui.site, 'addsitedir') as addsitedir_mock:
+            original_path = list(installer_ui.sys.path)
+
+            def fake_addsitedir(path: str):
+                installer_ui.sys.path.append(path)
+
+            with mock.patch.object(installer_ui, 'RUNTIME_REQUIREMENTS_PATH', requirements),                  mock.patch.object(installer_ui, 'RUNTIME_SITE_PACKAGES_PATH', runtime_site_packages),                  mock.patch.object(installer_ui.site, 'addsitedir', side_effect=fake_addsitedir) as addsitedir_mock:
+                installer_ui.sys.path[:] = ['/usr/lib/python3/dist-packages', '/snap/system']
                 installer_ui.ensure_installer_runtime()
+                self.assertEqual(installer_ui.sys.path[0], str(runtime_site_packages))
+                self.assertEqual(installer_ui.sys.path[1:], ['/usr/lib/python3/dist-packages', '/snap/system'])
+            installer_ui.sys.path[:] = original_path
             addsitedir_mock.assert_called_once_with(str(runtime_site_packages))
 
     def test_ensure_installer_runtime_requires_bundled_site_packages(self):

@@ -39,6 +39,7 @@ class StepCreateSeed:
         self._is_creating_seed = False
         self._started_at = None
         self._current_step = ''
+        self._finished_at = None
         self._timed_out = False
         self._success = False
         self._failed_message = ''
@@ -64,8 +65,14 @@ class StepCreateSeed:
     def _progress_callback(self, step: str) -> None:
         self._current_step = step
 
+    def _mark_finished(self) -> None:
+        if self._started_at is not None and getattr(self, '_finished_at', None) is None:
+            self._finished_at = time.monotonic()
+
     def _set_seed_creation_state(self, is_running: bool) -> None:
         self._is_creating_seed = is_running
+        if not is_running and (self._success or self._timed_out or self._failed_message):
+            self._mark_finished()
         self.spinner.visible = is_running
         if is_running:
             self.btn_create_seed.disable()
@@ -85,8 +92,10 @@ class StepCreateSeed:
     def _compute_progress_snapshot(self, now: float | None = None) -> dict:
         current_time = time.monotonic() if now is None else now
         elapsed_seconds = 0
+        finished_at = getattr(self, '_finished_at', None)
         if self._started_at is not None:
-            elapsed_seconds = max(0, int(current_time - self._started_at))
+            end_time = finished_at if (not self._is_creating_seed and finished_at is not None) else current_time
+            elapsed_seconds = max(0, int(end_time - self._started_at))
 
         current_step = self._current_step or ('Preparing output' if self._is_creating_seed else 'Not started')
 
@@ -150,23 +159,29 @@ class StepCreateSeed:
         if isinstance(result, ControlledTaskResult):
             if result.timed_out:
                 self._timed_out = True
+                self._mark_finished()
                 return False
             if result.busy:
                 self._failed_message = result.message or 'System busy, try again later.'
+                self._mark_finished()
                 return False
             if result.ok:
                 self._success = True
                 self._current_step = 'Finished'
+                self._mark_finished()
                 return True
             self._failed_message = result.message or 'Seed ISO creation failed.'
+            self._mark_finished()
             return False
 
         if result:
             self._success = True
             self._current_step = 'Finished'
+            self._mark_finished()
             return True
 
         self._failed_message = 'Seed ISO creation failed.'
+        self._mark_finished()
         return False
 
     def _refresh_progress_panel(self) -> None:
@@ -241,6 +256,7 @@ class StepCreateSeed:
                     rv = True
                     self._started_at = time.monotonic()
                     self._current_step = 'Preparing output'
+                    self._finished_at = None
                     self._timed_out = False
                     self._success = False
                     self._failed_message = ''
@@ -275,6 +291,7 @@ class StepCreateSeed:
                             ui.notify(self._failed_message, color='negative')
                     except Exception as exc:
                         self._failed_message = f'Seed ISO creation failed: {exc}'
+                        self._mark_finished()
                         ui.notify(self._failed_message, color='negative')
                     finally:
                         self._set_seed_creation_state(False)

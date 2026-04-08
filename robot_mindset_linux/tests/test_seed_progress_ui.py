@@ -131,6 +131,22 @@ class SeedProgressTests(unittest.TestCase):
         self.assertEqual(snapshot['elapsed_text'], '02:01')
         self.assertEqual(snapshot['current_step'], 'Preparing offline bundle')
 
+    def test_step_create_seed_elapsed_time_freezes_after_success(self):
+        step = StepCreateSeed.__new__(StepCreateSeed)
+        step._is_creating_seed = False
+        step._started_at = 100.0
+        step._finished_at = 165.0
+        step._current_step = 'Finished'
+        step._timed_out = False
+        step._success = True
+        step._failed_message = ''
+
+        snapshot = StepCreateSeed._compute_progress_snapshot(step, now=500.0)
+
+        self.assertEqual(snapshot['state'], 'success')
+        self.assertEqual(snapshot['elapsed_text'], '01:05')
+        self.assertEqual(snapshot['current_step'], 'Finished')
+
     def test_step_create_seed_timeout_result_cancels_build_state(self):
         step = StepCreateSeed.__new__(StepCreateSeed)
         step.spinner = FakeControl()
