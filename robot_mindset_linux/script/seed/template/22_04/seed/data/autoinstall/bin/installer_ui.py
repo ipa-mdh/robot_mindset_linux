@@ -158,19 +158,6 @@ def terminate_browser_processes():
             log(f'Could not kill browser process group {pgid}: {exc}')
 
 
-def firefox_running(context):
-    launch_user = context.get('user')
-    command = ['pgrep']
-    if launch_user:
-        command.extend(['-u', launch_user])
-    command.extend(['-f', 'firefox'])
-    return subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-
-
-def build_firefox_reuse_command(url, executable='firefox'):
-    return [executable, '--new-window', '--kiosk', url]
-
-
 def build_firefox_command(url, context, executable='firefox'):
     context_env = context.get('env', {})
     profile_root = Path(context_env.get('XDG_RUNTIME_DIR') or context_env.get('HOME') or '/tmp')
@@ -231,8 +218,6 @@ def open_browser(url):
     elif shutil.which('firefox'):
         firefox_executable = shutil.which('firefox')
 
-    if firefox_executable and firefox_running(context):
-        commands.append(build_firefox_reuse_command(url, firefox_executable))
     if shutil.which('chromium-browser'):
         commands.append(['chromium-browser', '--new-window', '--kiosk', '--incognito', url])
     if shutil.which('chromium'):
@@ -240,6 +225,8 @@ def open_browser(url):
     if shutil.which('google-chrome'):
         commands.append(['google-chrome', '--new-window', '--kiosk', '--incognito', url])
     if firefox_executable:
+        # Always use an isolated Firefox profile. Reusing an existing session can
+        # trigger a profile-lock dialog that looks like a successful launch.
         commands.append(build_firefox_command(url, context, firefox_executable))
     if shutil.which('gio'):
         commands.append(['gio', 'open', url])
