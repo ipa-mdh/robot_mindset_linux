@@ -4,10 +4,12 @@ import gzip
 import hashlib
 import json
 import os
+import re
 import shutil
 import tarfile
 import subprocess
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Iterable
@@ -21,6 +23,8 @@ MANIFEST_PATH = Path(__file__).resolve().parent / 'offline' / 'manifest.yaml'
 DEFAULT_CACHE_ROOT = Path(os.environ.get('ROBOT_MINDSET_OFFLINE_CACHE_DIR', '/tmp/robot_mindset_linux_offline_cache'))
 APT_LIST_MAX_AGE_SECONDS = 24 * 60 * 60
 BUNDLE_FORMAT_VERSION = 2
+UBUNTU_KEYRING_POOL_URL = 'http://archive.ubuntu.com/ubuntu/pool/main/u/ubuntu-keyring/'
+UBUNTU_ARCHIVE_KEYRING_FILENAME = 'ubuntu-archive-keyring.gpg'
 
 UBUNTU_RELEASES = {
     '20.04': 'focal',
@@ -86,6 +90,75 @@ def _copy_file(source: Path, destination: Path) -> None:
 def _run(command: list[str]) -> None:
     logger.info('Running: {}', ' '.join(command))
     subprocess.run(command, check=True)
+
+
+def _debian_version_gt(left: str, right: str) -> bool:
+    return subprocess.run(['dpkg', '--compare-versions', left, 'gt', right], check=False).returncode == 0
+
+
+def _select_latest_ubuntu_keyring_package(filenames: Iterable[str]) -> str:
+    latest_filename = ''
+    latest_version = ''
+
+    for filename in filenames:
+        candidate = Path(filename).name
+        match = re.fullmatch(r'ubuntu-keyring_(.+)_all\.deb', candidate)
+        if not match:
+            continue
+        version = match.group(1)
+        if not latest_filename or _debian_version_gt(version, latest_version):
+            latest_filename = candidate
+            latest_version = version
+
+    if not latest_filename:
+        raise RuntimeError(f'could not find ubuntu-keyring package in {UBUNTU_KEYRING_POOL_URL}')
+
+    return latest_filename
+
+
+def _download_ubuntu_archive_keyring(cache_dir: Path) -> Path:
+    keyring_dir = cache_dir / 'keyrings'
+    keyring_dir.mkdir(parents=True, exist_ok=True)
+    cached_keyring_path = keyring_dir / UBUNTU_ARCHIVE_KEYRING_FILENAME
+    if cached_keyring_path.is_file():
+        return cached_keyring_path
+
+    try:
+        with urllib.request.urlopen(UBUNTU_KEYRING_POOL_URL) as response:
+            listing = response.read().decode('utf-8', errors='replace')
+    except (HTTPError, URLError) as exc:
+        raise RuntimeError(f'failed to query {UBUNTU_KEYRING_POOL_URL}: {exc}') from exc
+
+    package_filename = _select_latest_ubuntu_keyring_package(
+        re.findall(r'href=["\']([^"\']*ubuntu-keyring_[^"\']+_all\.deb)["\']', listing)
+    )
+    package_url = urllib.parse.urljoin(UBUNTU_KEYRING_POOL_URL, package_filename)
+    package_path = keyring_dir / package_filename
+    extract_dir = keyring_dir / 'ubuntu-keyring-extracted'
+
+    _download(package_url, package_path)
+    shutil.rmtree(extract_dir, ignore_errors=True)
+    extract_dir.mkdir(parents=True, exist_ok=True)
+    _run(['dpkg-deb', '-x', str(package_path), str(extract_dir)])
+
+    extracted_keyring = extract_dir / 'usr' / 'share' / 'keyrings' / UBUNTU_ARCHIVE_KEYRING_FILENAME
+    if not extracted_keyring.is_file():
+        raise RuntimeError(f'{package_filename} does not contain {UBUNTU_ARCHIVE_KEYRING_FILENAME}')
+
+    _copy_file(extracted_keyring, cached_keyring_path)
+    return cached_keyring_path
+
+
+def _resolve_ubuntu_archive_keyring(cache_dir: Path) -> Path | None:
+    system_keyring = Path('/usr/share/keyrings') / UBUNTU_ARCHIVE_KEYRING_FILENAME
+    if system_keyring.is_file():
+        return system_keyring
+
+    try:
+        return _download_ubuntu_archive_keyring(cache_dir)
+    except RuntimeError as exc:
+        logger.warning('Falling back to trusted Ubuntu sources without a local archive keyring: {}', exc)
+        return None
 
 
 def _write_release(repo_dir: Path) -> None:
@@ -167,15 +240,16 @@ def _apt_base_args(state_dir: Path, archive_dir: Path, sources_list: Path) -> li
     ]
 
 
-def _write_ubuntu_sources_list(destination: Path, context: dict) -> str:
+def _write_ubuntu_sources_list(destination: Path, context: dict, keyring_path: Path | None = None) -> str:
     release = _target_ubuntu_release(context)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    source_options = f'arch=amd64 signed-by={keyring_path}' if keyring_path is not None else 'trusted=yes arch=amd64'
     destination.write_text(
         '\n'.join([
-            f'deb [trusted=yes arch=amd64] http://archive.ubuntu.com/ubuntu {release} main restricted universe multiverse',
-            f'deb [trusted=yes arch=amd64] http://archive.ubuntu.com/ubuntu {release}-updates main restricted universe multiverse',
-            f'deb [trusted=yes arch=amd64] http://security.ubuntu.com/ubuntu {release}-security main restricted universe multiverse',
-            f'deb [trusted=yes arch=amd64] http://archive.ubuntu.com/ubuntu {release}-backports main restricted universe multiverse',
+            f'deb [{source_options}] http://archive.ubuntu.com/ubuntu {release} main restricted universe multiverse',
+            f'deb [{source_options}] http://archive.ubuntu.com/ubuntu {release}-updates main restricted universe multiverse',
+            f'deb [{source_options}] http://security.ubuntu.com/ubuntu {release}-security main restricted universe multiverse',
+            f'deb [{source_options}] http://archive.ubuntu.com/ubuntu {release}-backports main restricted universe multiverse',
             '',
         ])
     )
@@ -284,7 +358,8 @@ def prepare_offline_bundle(seed_data_dir: Path, context: dict, cache_dir: Path |
     realtime_cache_dir.mkdir(parents=True, exist_ok=True)
     (apt_state_dir / 'lists' / 'partial').mkdir(parents=True, exist_ok=True)
 
-    release = _write_ubuntu_sources_list(sources_list, context)
+    ubuntu_archive_keyring = _resolve_ubuntu_archive_keyring(cache_dir)
+    release = _write_ubuntu_sources_list(sources_list, context, ubuntu_archive_keyring)
     logger.info('Preparing offline bundle for Ubuntu release {} using cache {}', release, cache_dir)
 
     packages = []

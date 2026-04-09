@@ -6,6 +6,7 @@ apt_packages:
     - python3-passlib
     - python3-pip
     - python3-venv
+    - ubuntu-keyring
   role_packages:
     - docker.io
 
