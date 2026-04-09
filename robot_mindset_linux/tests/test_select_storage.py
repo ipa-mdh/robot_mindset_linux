@@ -259,7 +259,41 @@ class InstallerUiBundleTests(unittest.TestCase):
             self.assertEqual(run_mock.call_count, 0)
             self.assertTrue((runtime_root / 'cp310' / 'typing_extensions.py').exists())
 
-    def test_open_browser_uses_isolated_firefox_profile(self):
+    def test_open_browser_prefers_desktop_opener_before_firefox(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            launched_commands = []
+
+            class FakeProcess:
+                pid = 1234
+
+                def poll(self):
+                    return 0
+
+            def fake_popen(command, **kwargs):
+                launched_commands.append(command)
+                return FakeProcess()
+
+            def fake_path_exists(self):
+                return str(self) == '/usr/bin/firefox'
+
+            def fake_which(name):
+                mapping = {
+                    'gio': '/usr/bin/gio',
+                    'firefox': None,
+                    'chromium-browser': None,
+                    'chromium': None,
+                    'google-chrome': None,
+                    'xdg-open': None,
+                    'runuser': None,
+                }
+                return mapping.get(name)
+
+            with mock.patch.object(installer_ui, 'discover_gui_context', return_value={'user': None, 'env': {'HOME': tmpdir}}),                  mock.patch.object(installer_ui, 'wait_for_ui_endpoint', return_value=True),                  mock.patch.object(installer_ui.shutil, 'which', side_effect=fake_which),                  mock.patch.object(installer_ui.Path, 'exists', fake_path_exists),                  mock.patch.object(installer_ui.subprocess, 'Popen', side_effect=fake_popen),                  mock.patch.object(installer_ui, 'register_browser_process'):
+                self.assertTrue(installer_ui.open_browser('http://127.0.0.1:8123'))
+
+        self.assertEqual(launched_commands, [['gio', 'open', 'http://127.0.0.1:8123']])
+
+    def test_open_browser_uses_isolated_firefox_profile_when_no_desktop_opener_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             launched_commands = []
 
@@ -276,7 +310,19 @@ class InstallerUiBundleTests(unittest.TestCase):
             def fake_path_exists(self):
                 return str(self) == '/usr/bin/firefox'
 
-            with mock.patch.object(installer_ui, 'discover_gui_context', return_value={'user': None, 'env': {'HOME': tmpdir}}),                  mock.patch.object(installer_ui, 'wait_for_ui_endpoint', return_value=True),                  mock.patch.object(installer_ui.shutil, 'which', return_value=None),                  mock.patch.object(installer_ui.Path, 'exists', fake_path_exists),                  mock.patch.object(installer_ui.subprocess, 'Popen', side_effect=fake_popen),                  mock.patch.object(installer_ui, 'register_browser_process'):
+            def fake_which(name):
+                mapping = {
+                    'gio': None,
+                    'firefox': None,
+                    'chromium-browser': None,
+                    'chromium': None,
+                    'google-chrome': None,
+                    'xdg-open': None,
+                    'runuser': None,
+                }
+                return mapping.get(name)
+
+            with mock.patch.object(installer_ui, 'discover_gui_context', return_value={'user': None, 'env': {'HOME': tmpdir}}),                  mock.patch.object(installer_ui, 'wait_for_ui_endpoint', return_value=True),                  mock.patch.object(installer_ui.shutil, 'which', side_effect=fake_which),                  mock.patch.object(installer_ui.Path, 'exists', fake_path_exists),                  mock.patch.object(installer_ui.subprocess, 'Popen', side_effect=fake_popen),                  mock.patch.object(installer_ui, 'register_browser_process'):
                 self.assertTrue(installer_ui.open_browser('http://127.0.0.1:8123'))
 
         self.assertEqual(len(launched_commands), 1)

@@ -224,14 +224,16 @@ def open_browser(url):
         commands.append(['chromium', '--new-window', '--kiosk', '--incognito', url])
     if shutil.which('google-chrome'):
         commands.append(['google-chrome', '--new-window', '--kiosk', '--incognito', url])
-    if firefox_executable:
-        # Always use an isolated Firefox profile. Reusing an existing session can
-        # trigger a profile-lock dialog that looks like a successful launch.
-        commands.append(build_firefox_command(url, context, firefox_executable))
     if shutil.which('gio'):
+        # Prefer the desktop opener so an existing user browser session can
+        # receive the URL without Firefox profile-lock conflicts.
         commands.append(['gio', 'open', url])
     if shutil.which('xdg-open'):
         commands.append(['xdg-open', url])
+    if firefox_executable:
+        # Fall back to an isolated Firefox profile only when no desktop opener
+        # is available to hand off the URL to the logged-in session.
+        commands.append(build_firefox_command(url, context, firefox_executable))
 
     launch_env = build_launch_env(context['env'])
     launch_user = context.get('user')
