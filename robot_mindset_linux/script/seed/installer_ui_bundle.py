@@ -23,7 +23,12 @@ RUNTIME_ARCHIVE_FILENAME = 'installer-ui-site-packages.tar'
 TARGET_PLATFORM = 'manylinux2014_x86_64'
 TARGET_IMPLEMENTATION = 'cp'
 SUPPORTED_TARGET_PYTHONS = ('3.8', '3.10', '3.12')
-BUNDLE_FORMAT_VERSION = 3
+BUNDLE_FORMAT_VERSION = 4
+
+
+def _parse_python_version(version: str) -> tuple[int, int]:
+    major, minor = version.split('.', 1)
+    return int(major), int(minor)
 
 
 def _python_abi_tag(version: str) -> str:
@@ -40,10 +45,19 @@ def _runtime_subdir_name(version: str) -> str:
     return _python_abi_tag(version)
 
 
+def _extra_runtime_requirements(version: str) -> tuple[str, ...]:
+    # pip download resolves some environment markers from the build interpreter,
+    # so target-specific backports must be added explicitly for older runtimes.
+    if _parse_python_version(version) < (3, 11):
+        return ('exceptiongroup',)
+    return ()
+
+
 def _bundle_signature(version: str) -> str:
     payload = {
         'bundle_format_version': BUNDLE_FORMAT_VERSION,
         'requirements': REQUIREMENTS_PATH.read_text(encoding='utf-8'),
+        'extra_requirements': list(_extra_runtime_requirements(version)),
         'target_python': version,
         'target_abi': _python_abi_tag(version),
         'platform': TARGET_PLATFORM,
@@ -136,6 +150,7 @@ def _prepare_runtime_for_version(
     wheelhouse_dir = resolved_cache_dir / WHEELHOUSE_DIRNAME
     runtime_archive_path = resolved_cache_dir / RUNTIME_ARCHIVE_FILENAME
     target_args = _pip_target_args(version)
+    extra_requirements = _extra_runtime_requirements(version)
 
     if runtime_archive_path.exists():
         _extract_runtime(runtime_archive_path, runtime_site_packages_dir)
@@ -158,6 +173,7 @@ def _prepare_runtime_for_version(
             '--requirement',
             str(REQUIREMENTS_PATH),
             '--only-binary=:all:',
+            *extra_requirements,
         ],
         env=pip_env,
         check=True,
