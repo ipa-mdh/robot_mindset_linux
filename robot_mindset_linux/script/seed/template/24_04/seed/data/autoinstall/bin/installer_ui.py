@@ -22,7 +22,7 @@ import select_storage
 
 DEFAULT_SELECTION_PATH = Path('/autoinstall-working/robot_mindset_installer_selection.json')
 DEFAULT_PORT = 8123
-DEFAULT_UI_TIMEOUT_SECONDS = 300
+DEFAULT_UI_TIMEOUT_SECONDS = 0
 RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_REQUIREMENTS_PATH = RUNTIME_ROOT / 'requirements-installer-ui.txt'
 RUNTIME_SITE_PACKAGES_ROOT = RUNTIME_ROOT / 'installer-ui-site-packages'
@@ -160,7 +160,12 @@ def terminate_browser_processes():
 
 def build_firefox_command(url, context, executable='firefox'):
     context_env = context.get('env', {})
-    profile_root = Path(context_env.get('XDG_RUNTIME_DIR') or context_env.get('HOME') or '/tmp')
+    if context_env.get('HOME'):
+        profile_root = Path(context_env['HOME']) / 'robot-mindset-firefox-profiles'
+    elif context_env.get('XDG_RUNTIME_DIR'):
+        profile_root = Path(context_env['XDG_RUNTIME_DIR']) / 'robot-mindset-firefox-profiles'
+    else:
+        profile_root = Path('/tmp/robot-mindset-firefox-profiles')
     profile_root.mkdir(parents=True, exist_ok=True)
     profile_dir = Path(tempfile.mkdtemp(prefix='robot-mindset-firefox-', dir=str(profile_root)))
 
@@ -168,6 +173,7 @@ def build_firefox_command(url, context, executable='firefox'):
     if launch_user and os.geteuid() == 0:
         try:
             passwd_entry = pwd.getpwnam(launch_user)
+            os.chown(profile_root, passwd_entry.pw_uid, passwd_entry.pw_gid)
             os.chown(profile_dir, passwd_entry.pw_uid, passwd_entry.pw_gid)
         except Exception as exc:
             log(f'Could not chown Firefox profile {profile_dir} to {launch_user}: {exc}')
@@ -224,16 +230,14 @@ def open_browser(url):
         commands.append(['chromium', '--new-window', '--kiosk', '--incognito', url])
     if shutil.which('google-chrome'):
         commands.append(['google-chrome', '--new-window', '--kiosk', '--incognito', url])
-    if shutil.which('gio'):
-        # Prefer the desktop opener so an existing user browser session can
-        # receive the URL without Firefox profile-lock conflicts.
-        commands.append(['gio', 'open', url])
-    if shutil.which('xdg-open'):
-        commands.append(['xdg-open', url])
     if firefox_executable:
-        # Fall back to an isolated Firefox profile only when no desktop opener
-        # is available to hand off the URL to the logged-in session.
         commands.append(build_firefox_command(url, context, firefox_executable))
+    if commands:
+        log('Using direct browser launch before desktop openers to avoid Firefox profile-lock handoff')
+    elif shutil.which('gio'):
+        commands.append(['gio', 'open', url])
+    elif shutil.which('xdg-open'):
+        commands.append(['xdg-open', url])
 
     launch_env = build_launch_env(context['env'])
     launch_user = context.get('user')

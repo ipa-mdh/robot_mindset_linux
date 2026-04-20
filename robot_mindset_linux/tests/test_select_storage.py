@@ -259,7 +259,23 @@ class InstallerUiBundleTests(unittest.TestCase):
             self.assertEqual(run_mock.call_count, 0)
             self.assertTrue((runtime_root / 'cp310' / 'typing_extensions.py').exists())
 
-    def test_open_browser_prefers_desktop_opener_before_firefox(self):
+    def test_installer_ui_waits_for_user_selection_by_default(self):
+        self.assertEqual(installer_ui.DEFAULT_UI_TIMEOUT_SECONDS, 0)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state = installer_ui.InstallerUIState.__new__(installer_ui.InstallerUIState)
+            state.timeout_seconds = installer_ui.DEFAULT_UI_TIMEOUT_SECONDS
+            state.started_at = 100.0
+            state.selection_path = Path(tmpdir) / 'selection.json'
+
+            self.assertIsNone(state.timeout_deadline_epoch())
+
+            shutdown_callback = mock.Mock()
+            installer_ui.shutdown_after_timeout(state, state.timeout_seconds, shutdown_callback)
+
+        shutdown_callback.assert_not_called()
+
+    def test_open_browser_prefers_isolated_firefox_before_desktop_opener(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             launched_commands = []
 
@@ -291,7 +307,14 @@ class InstallerUiBundleTests(unittest.TestCase):
             with mock.patch.object(installer_ui, 'discover_gui_context', return_value={'user': None, 'env': {'HOME': tmpdir}}),                  mock.patch.object(installer_ui, 'wait_for_ui_endpoint', return_value=True),                  mock.patch.object(installer_ui.shutil, 'which', side_effect=fake_which),                  mock.patch.object(installer_ui.Path, 'exists', fake_path_exists),                  mock.patch.object(installer_ui.subprocess, 'Popen', side_effect=fake_popen),                  mock.patch.object(installer_ui, 'register_browser_process'):
                 self.assertTrue(installer_ui.open_browser('http://127.0.0.1:8123'))
 
-        self.assertEqual(launched_commands, [['gio', 'open', 'http://127.0.0.1:8123']])
+        self.assertEqual(len(launched_commands), 1)
+        command = launched_commands[0]
+        self.assertEqual(command[0], '/usr/bin/firefox')
+        self.assertIn('--no-remote', command)
+        self.assertIn('--new-instance', command)
+        self.assertIn('--profile', command)
+        profile_dir = Path(command[command.index('--profile') + 1])
+        self.assertEqual(profile_dir.parent, Path(tmpdir) / 'robot-mindset-firefox-profiles')
 
     def test_open_browser_uses_isolated_firefox_profile_when_no_desktop_opener_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:
