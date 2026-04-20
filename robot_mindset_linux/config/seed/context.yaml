@@ -1,22 +1,30 @@
-environment: dev
+environment: 24.04
 
 environments:
-  - environment: dev
-    image: ubuntu-24.04.2-desktop-amd64.iso
-    autoinstall: 
+  - environment: 20.04
+    label: Ubuntu 20.04.6 Desktop AMD64
+    image: ubuntu-20.04.6-desktop-amd64.iso
+    ubuntu_release: focal
+    autoinstall:
       source:
         id: ubuntu-desktop-minimal
-    # data:
-    #   debs: data/dev/debs
-      # ansible: data/dev/ansible
 
-  - environment: prod
-    image: ubuntu-22.04.5-live-server-amd64.iso
-    autoinstall: 
+  - environment: 22.04
+    label: Ubuntu 22.04.5 Desktop AMD64
+    image: ubuntu-22.04.5-desktop-amd64.iso
+    ubuntu_release: jammy
+    autoinstall:
       source:
-        id: ubuntu-server-minimal
-    # data:
-    #   debs: data/run/debs
+        id: ubuntu-desktop-minimal
+
+  - environment: 24.04
+    default: true
+    label: Ubuntu 24.04.2 Desktop AMD64
+    image: ubuntu-24.04.2-desktop-amd64.iso
+    ubuntu_release: noble
+    autoinstall:
+      source:
+        id: ubuntu-desktop-minimal
 
 networks:
   - name: public
@@ -37,16 +45,11 @@ autoinstall:
     password: setup
     boot:
       size: 9G
-    disk:
-      match:
-        - key: size
-          value: largest
 
-    
   packages:
     - magic-wormhole
     - docker-buildx
-    ## --- dev --- 
+    ## --- desktop tooling ---
     - git
     - python3
     - python3-pip
@@ -59,7 +62,7 @@ autoinstall:
       - ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQCZLEx6R1AXusR3+hVVcdstHy80vAdaIn0kv5xbSFy257dSmordVlPgcRl1wDIUzSY1jcFvEc+WFQwA0Wuxw/PfqoBY0pZMnG4ApVMaWgACTmfhIaUW8hecjCLlZuXRkAUeIwNbTvfjcZp9XW4i0x4XYAmPrY8/Hn9Kp9PlxdaWo5V7RyjqdMgAs1PKogoy5gQZZBjeIjriwEZGqWqeYKgKCmzyRk3ezgID+kCoTDsbeqthRKGS6m96yhFDz87PV67xmioExzt9auRDElNsxh8AF1V3O0yRPQEGIu+Bl/m2HIgJDGt+IgebQkBT4/0nRWNVzl4lYp98Vjd0nUhTsYc8r2iS7qOwOpm1oEcijbs9iZjlzr47IRfc6nEiBTa08wkY0enDMVxOF0o7T/5ctAczzdIF/uvBQF9tZdaWWSSJi2eHxIugrBzTtzaDuNMBMZV0WRr/71TKJeawfHP11EfnbZpURNN0KqJIO8Sr/bhnSTXlOVg4dXDrPLVFu2vEJeSfq3kx4QtawHpaYQSQTv3HjA9+2eYdOGbE26yyvS6b6nlQGBQaxcxt2H6X+o0bXFZIf5ZcwfelsbiAeayRHEL/cT0BSAwdBRtGv+nJZP0NDEC8wkp/uUq5FTp7Jvfz5C4+dHcgW9K5IQ2yo/pRHD17WUpEtsMt7iDd63I90/Hb+Q==
 
   late_commands:
-    - curtin in-target --target /target bash /robot_mindset/data/install.sh || true
+    - curtin in-target --target /target bash /robot_mindset/data/install.sh
 
 freeipa:
 # hostname will be fetched from autoisntall configuration above

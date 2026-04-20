@@ -1,0 +1,6 @@
+[Allow all users full Wi-Fi control]
+Identity=unix-user:*
+Action=org.freedesktop.NetworkManager.wifi.scan;org.freedesktop.NetworkManager.settings.modify.system
+ResultAny=yes
+ResultInactive=yes
+ResultActive=yes

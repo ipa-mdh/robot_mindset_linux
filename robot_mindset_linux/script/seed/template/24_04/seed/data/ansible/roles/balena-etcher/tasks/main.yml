@@ -1,0 +1,6 @@
+---
+- name: Install balenaEtcher from local offline repository
+  become: true
+  ansible.builtin.apt:
+    name: "{{ balena_etcher_package_name }}"
+    state: present

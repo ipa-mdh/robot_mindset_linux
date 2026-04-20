@@ -1,0 +1,13 @@
+---
+- name: Install Docker packages from local offline repository
+  become: true
+  ansible.builtin.apt:
+    name: "{{ docker_packages }}"
+    state: present
+
+- name: Ensure Docker service is enabled and started
+  become: true
+  ansible.builtin.service:
+    name: docker
+    enabled: true
+    state: started

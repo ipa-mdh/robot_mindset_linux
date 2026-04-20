@@ -1,0 +1,14 @@
+# Build-time source manifest only. The target install uses vendored roles under data/ansible/roles.
+roles:
+  - name: balena-etcher
+    src: https://github.com/ipa-mdh/ansible-role-balena-etcher.git
+  - name: docker
+    src: https://github.com/ipa-mdh/ansible-role-docker.git
+  - name: vscode
+    src: https://github.com/ipa-mdh/ansible-role-vscode.git
+  - name: webmin
+    src: https://github.com/ipa-mdh/ansible-role-webmin.git
+  - name: NIC
+    src: https://github.com/ipa-mdh/ansible-role-nic.git
+  - name: realtime-patch
+    src: https://github.com/ipa-mdh/ansible-role-linux-kernel-rt-preempt.git

@@ -1,0 +1,229 @@
+---
+- name: Check if default config exists
+  ansible.builtin.stat:
+    path: "{{ default_config }}"
+  register: stat_result
+
+- name: Create working directory
+  become: true
+  ansible.builtin.file:
+    path: "{{ working_dir }}"
+    state: directory
+    mode: "1777"
+
+- name: Check if kernel sources already exist
+  ansible.builtin.stat:
+    path: "{{ working_dir }}/linux-{{ version }}"
+  register: stat_linux
+
+- name: Include Ubuntu 20.04 vars
+  ansible.builtin.include_vars: vars_ubuntu_20_04.yml
+  when: ansible_distribution_version == '20.04'
+
+- name: Include Ubuntu 22.04 vars
+  ansible.builtin.include_vars: vars_ubuntu_22_04.yml
+  when: ansible_distribution_version == '22.04'
+
+- name: Include Ubuntu 24.04 vars
+  ansible.builtin.include_vars: vars_ubuntu_24_04.yml
+  when: ansible_distribution_version == '24.04'
+
+- name: Define offline realtime artifact paths
+  ansible.builtin.set_fact:
+    realtime_kernel_archive: "{{ realtime_artifacts_dir }}/linux-{{ version }}.tar.xz"
+    realtime_patch_archive: "{{ realtime_artifacts_dir }}/patch-{{ version_with_rt }}.patch.xz"
+    realtime_patch_file: "{{ working_dir }}/patch-{{ version_with_rt }}.patch"
+    realtime_patch_marker: "{{ working_dir }}/linux-{{ version }}/.robot_mindset_rt_patch_applied"
+
+- name: Check local realtime kernel archive
+  ansible.builtin.stat:
+    path: "{{ realtime_kernel_archive }}"
+  register: kernel_archive_stat
+
+- name: Check local realtime patch archive
+  ansible.builtin.stat:
+    path: "{{ realtime_patch_archive }}"
+  register: patch_archive_stat
+
+- name: Fail when offline realtime artifacts are missing
+  ansible.builtin.fail:
+    msg: "Missing realtime artifacts under {{ realtime_artifacts_dir }}. Build the offline bundle with realtime enabled first."
+  when:
+    - not stat_linux.stat.exists
+    - not kernel_archive_stat.stat.exists or not patch_archive_stat.stat.exists
+
+- name: Install realtime test package
+  become: true
+  ansible.builtin.apt:
+    name: rt-tests
+    state: present
+  tags: dependencies
+
+- name: Install basic build dependencies
+  become: true
+  ansible.builtin.apt:
+    pkg:
+      - libncurses-dev
+      - build-essential
+    state: present
+  tags: dependencies
+
+- name: Install kernel build dependencies
+  become: true
+  ansible.builtin.apt:
+    name: "{{ packages_to_install }}"
+    state: present
+    update_cache: true
+  tags: dependencies
+
+- name: Unpack offline realtime kernel source archive
+  ansible.builtin.unarchive:
+    src: "{{ realtime_kernel_archive }}"
+    dest: "{{ working_dir }}"
+    remote_src: true
+  when: not stat_linux.stat.exists
+
+- name: Copy offline realtime patch archive into working directory
+  ansible.builtin.copy:
+    src: "{{ realtime_patch_archive }}"
+    dest: "{{ working_dir }}/patch-{{ version_with_rt }}.patch.xz"
+    remote_src: true
+    mode: "0644"
+  when: not stat_linux.stat.exists
+
+- name: Decompress offline realtime patch archive
+  ansible.builtin.command:
+    cmd: "xz -dkf {{ working_dir }}/patch-{{ version_with_rt }}.patch.xz"
+  when: not stat_linux.stat.exists
+
+- name: Apply realtime patch
+  ansible.builtin.command:
+    cmd: "patch -p1 -i {{ realtime_patch_file }}"
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+    creates: "{{ realtime_patch_marker }}"
+
+- name: Mark realtime patch as applied
+  ansible.builtin.file:
+    path: "{{ realtime_patch_marker }}"
+    state: touch
+    mode: "0644"
+
+- name: Make oldconfig
+  ansible.builtin.command:
+    cmd: make olddefconfig
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  tags: config
+
+- name: Update config disable list
+  ansible.builtin.command:
+    cmd: scripts/config --disable {{ item }}
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  loop: "{{ scripts_config_disable }}"
+
+- name: Update config enable list
+  ansible.builtin.command:
+    cmd: scripts/config --enable {{ item }}
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  loop: "{{ scripts_config_enable }}"
+
+- name: Update config set-str list
+  ansible.builtin.command:
+    cmd: scripts/config --set-str {{ item.key }} {{ item.value }}
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  loop: "{{ scripts_config_set_string }}"
+
+- name: Refresh kernel config
+  ansible.builtin.command:
+    cmd: make olddefconfig
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  tags: config
+
+- name: Initialize git repo
+  ansible.builtin.command:
+    cmd: git init
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+
+- name: Check for git changes
+  ansible.builtin.command:
+    cmd: git status --porcelain
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  register: git_status
+
+- name: Stage git changes
+  ansible.builtin.command:
+    cmd: git add .
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  when: git_status.stdout != ''
+
+- name: Set git user name
+  ansible.builtin.command:
+    cmd: git config user.name "{{ git_config['user.name'] }}"
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+
+- name: Set git user email
+  ansible.builtin.command:
+    cmd: git config user.email "{{ git_config['user.email'] }}"
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+
+- name: Commit git changes
+  ansible.builtin.command:
+    cmd: git commit -m "automated initial commit by Ansible"
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  when: git_status.stdout != ''
+
+- name: Build kernel package
+  ansible.builtin.command:
+    cmd: "make -j {{ ansible_facts['processor_vcpus'] }} deb-pkg"
+    chdir: "{{ working_dir }}/linux-{{ version }}"
+  tags: build
+
+- name: Find generated deb packages
+  ansible.builtin.find:
+    paths: "{{ working_dir }}"
+    patterns: "*.deb"
+  register: deb_files
+  tags: install
+
+- name: Install realtime kernel packages
+  become: true
+  ansible.builtin.apt:
+    deb: "{{ item.path }}"
+    state: present
+  loop: "{{ deb_files.files }}"
+  tags: install
+
+- name: Create realtime group
+  become: true
+  ansible.builtin.group:
+    name: realtime
+    state: present
+  tags: user
+
+- name: Add current user to realtime group
+  become: true
+  ansible.builtin.user:
+    name: "{{ ansible_facts['env']['USER'] }}"
+    groups: realtime
+    append: yes
+  tags: user
+
+- name: Set default kernel
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/default/grub
+    regexp: '^GRUB_DEFAULT='
+    line: 'GRUB_DEFAULT="Advanced options for Ubuntu>Ubuntu, with Linux {{ version_with_rt }}"'
+
+- name: Update grub
+  become: true
+  ansible.builtin.command:
+    cmd: update-grub
+
+- name: Ensure limits.conf contains realtime entries
+  become: true
+  ansible.builtin.lineinfile:
+    path: /etc/security/limits.conf
+    regex: '^{{ item }}'
+    line: '{{ item }}'
+  loop: "{{ limits_conf_values }}"
+  tags: conf

@@ -1,0 +1,7 @@
+---
+galaxy_info:
+  author: ipa-mdh
+  description: Configure netplan interfaces locally without external dependencies.
+  license: MIT
+  min_ansible_version: '2.13'
+dependencies: []

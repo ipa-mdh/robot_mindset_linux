@@ -18,6 +18,7 @@ def create_seed_iso(seed_dir, output_dir=Path("output")):
         "-output", str(seed_iso),
         "-volid", "CIDATA",
         "-joliet",
+        "-joliet-long",
         "-rock",
         str(seed_folder)
     ]

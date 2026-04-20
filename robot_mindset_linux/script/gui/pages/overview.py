@@ -23,18 +23,22 @@ from ..utils.long_running_task import controlled_task
 
 semaphore = anyio.Semaphore(5)
 
-@controlled_task(semaphore)
-async def create_seed_iso(context, output_dir: Path):
+
+@controlled_task(semaphore, run_timeout=20 * 60)
+async def create_seed_iso(context, output_dir: Path, progress_callback=None):
     """Create a seed ISO using the provided context."""
-    
-    rv = await run.cpu_bound(seed_main,
-            context,
-            context,
-            output_dir
-        )
+
+    rv = await run.io_bound(
+        seed_main,
+        context,
+        context,
+        output_dir,
+        progress_callback,
+    )
     return rv
 
-def save_context_callback(context, file_path:Path):
+
+def save_context_callback(context, file_path: Path):
     file_path.parent.mkdir(parents=True, exist_ok=True)
     with open(file_path, 'w') as outfile:
         yaml.dump(context, outfile)
@@ -46,7 +50,9 @@ def content(data: UserStorage) -> None:
     context = get_config(data.context_path)
 
     # Create the GUI
-    css = SeedStepperUI(context,
-                        callback_save_context=save_context_callback,
-                        callback_create_seed=create_seed_iso,
-                        data=data)
+    css = SeedStepperUI(
+        context,
+        callback_save_context=save_context_callback,
+        callback_create_seed=create_seed_iso,
+        data=data,
+    )

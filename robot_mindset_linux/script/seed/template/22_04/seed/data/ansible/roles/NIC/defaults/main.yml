@@ -1,0 +1,6 @@
+---
+auto_connect: true
+ethernet_interface_name: ''
+ipv4: ''
+method4: auto
+network_name: ''

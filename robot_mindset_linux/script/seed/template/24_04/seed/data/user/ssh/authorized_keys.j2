@@ -1,0 +1,5 @@
+{%- if args.autoinstall.ssh.authorized_keys is defined %}
+{%- for item in args.autoinstall.ssh.authorized_keys %}
+{{ item }}
+{%- endfor %}
+{%- endif %}

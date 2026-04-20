@@ -1,0 +1,4 @@
+PasswordAuthentication {{ 'yes' if args.autoinstall.ssh.allow_pw | default(false) else 'no' }}
+PubkeyAuthentication yes
+KbdInteractiveAuthentication no
+ChallengeResponseAuthentication no

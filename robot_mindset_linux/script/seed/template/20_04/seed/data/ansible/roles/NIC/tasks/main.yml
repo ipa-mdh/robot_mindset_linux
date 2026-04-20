@@ -1,0 +1,36 @@
+---
+- name: Render netplan config for {{ network_name }}
+  become: true
+  ansible.builtin.copy:
+    dest: "/etc/netplan/90-robot-mindset-{{ network_name }}.yaml"
+    mode: '0600'
+    content: |
+      network:
+        version: 2
+        ethernets:
+          {{ ethernet_interface_name }}:
+      {% if ipv4 %}
+            dhcp4: false
+            addresses:
+              - {{ ipv4 }}
+      {% if gateway4 is defined and gateway4 %}
+            routes:
+              - to: default
+                via: {{ gateway4 }}
+      {% endif %}
+      {% if nameservers is defined and nameservers %}
+            nameservers:
+              addresses:
+      {% for nameserver in nameservers %}
+                - {{ nameserver }}
+      {% endfor %}
+      {% endif %}
+      {% else %}
+            dhcp4: true
+      {% endif %}
+
+- name: Apply netplan configuration
+  become: true
+  ansible.builtin.command:
+    cmd: netplan apply
+  when: not ansible_check_mode

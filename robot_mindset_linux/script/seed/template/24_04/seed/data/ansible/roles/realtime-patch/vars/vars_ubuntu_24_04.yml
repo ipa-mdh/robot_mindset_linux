@@ -1,0 +1,15 @@
+---
+packages_to_install:
+  - libncurses-dev
+  - flex
+  - bison
+  - openssl
+  - libssl-dev
+  - dkms
+  - libelf-dev
+  - libudev-dev
+  - libpci-dev
+  - libiberty-dev
+  - autoconf
+  - fakeroot
+  - debhelper
