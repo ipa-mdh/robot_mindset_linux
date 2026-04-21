@@ -493,15 +493,11 @@ class InstallerUIState:
         self.selection_path.parent.mkdir(parents=True, exist_ok=True)
 
         self.config = select_storage.load_config()
-        self.disks = select_storage.gather_disks(self.config['min_free_bytes'])
-        self.candidates = select_storage.collect_candidates(
-            self.disks,
-            self.config['min_free_bytes'],
-            prefer_ssd=self.config['prefer_ssd'],
-        )
-        if not self.candidates:
-            raise RuntimeError('No eligible storage targets found for the installer UI')
-        self.storage_candidates = serialise_candidates(self.candidates)
+        self.disks = []
+        self.candidates = []
+        self.storage_candidates = []
+        self.selected_storage_id = ''
+        self.refresh_storage_targets()
         self.identity_defaults = select_storage.extract_identity_entry(autoinstall_path)
         self.network_interfaces = discover_network_interfaces()
         self.network_presets = extract_network_entries(autoinstall_path)
@@ -516,10 +512,6 @@ class InstallerUIState:
                 'realtime': self._default_realtime_settings(),
             },
         }
-        self.selected_storage_id = select_storage.candidate_id(
-            self.candidates[0]['path'],
-            self.candidates[0]['scenario'],
-        )
 
     def _default_realtime_settings(self):
         realtime = dict(self.config.get('linux_kernel_realtime', {}) or {})
@@ -535,6 +527,38 @@ class InstallerUIState:
             return None
         return self.started_at + self.timeout_seconds
 
+    def storage_unavailable_message(self):
+        min_free_gib = select_storage.bytes_to_gib(self.config['min_free_bytes'])
+        return (
+            'No eligible storage targets are available. '
+            f'At least {min_free_gib} GiB of unformatted free space is required on an existing disk, '
+            'or an empty disk must be available. Existing partitions are preserved. '
+            'Use the Disks application to format or free space, then press Refresh targets.'
+        )
+
+    def refresh_storage_targets(self, preferred_storage_id=None):
+        previous_storage_id = preferred_storage_id if preferred_storage_id is not None else self.selected_storage_id
+        self.disks = select_storage.gather_disks(self.config['min_free_bytes'])
+        self.candidates = select_storage.collect_candidates(
+            self.disks,
+            self.config['min_free_bytes'],
+            prefer_ssd=self.config['prefer_ssd'],
+        )
+        self.storage_candidates = serialise_candidates(self.candidates)
+
+        candidate_ids = [
+            select_storage.candidate_id(candidate['path'], candidate['scenario'])
+            for candidate in self.candidates
+        ]
+        if previous_storage_id in candidate_ids:
+            self.selected_storage_id = previous_storage_id
+        elif candidate_ids:
+            self.selected_storage_id = candidate_ids[0]
+        else:
+            self.selected_storage_id = ''
+            log(self.storage_unavailable_message())
+        return self.storage_candidates
+
     def default_selection(self):
         return self.build_selection({})
 
@@ -544,6 +568,8 @@ class InstallerUIState:
             select_storage.candidate_id(item['path'], item['scenario']): item
             for item in self.candidates
         }
+        if not allowed:
+            raise RuntimeError(self.storage_unavailable_message())
         selected_storage_id = payload.get('selected_storage_id') or self.selected_storage_id
         if selected_storage_id not in allowed:
             raise RuntimeError('The selected storage destination is no longer available')
@@ -655,6 +681,7 @@ def write_default_selection(ui_state):
     selection = ui_state.default_selection()
     ui_state.selection_path.write_text(json.dumps(selection, indent=2), encoding='utf-8')
     log(f'Wrote non-interactive default selection to {ui_state.selection_path}')
+    return selection
 
 
 def shutdown_after_timeout(ui_state, timeout_seconds, shutdown_callback):
@@ -664,7 +691,11 @@ def shutdown_after_timeout(ui_state, timeout_seconds, shutdown_callback):
     if ui_state.selection_path.exists():
         return
     log(f'Installer UI timed out after {timeout_seconds}s; falling back to default selection')
-    write_default_selection(ui_state)
+    try:
+        write_default_selection(ui_state)
+    except Exception as exc:
+        log(f'Could not write default installer selection: {exc}')
+        return
     shutdown_callback()
 
 
@@ -711,6 +742,7 @@ def render_ui(ui_state, host: str, port: int) -> None:
         network_models = [dict(item) for item in ui_state.networks]
         authorized_keys_default = '\n'.join(ui_state.software_defaults['ssh']['authorized_keys'])
         realtime_default = dict(ui_state.software_defaults['linux_kernel']['realtime'])
+        storage_choice = None
 
         with ui.column().classes('rm-page w-full gap-4'):
             with ui.row().classes('w-full items-center justify-between gap-4'):
@@ -760,18 +792,48 @@ def render_ui(ui_state, host: str, port: int) -> None:
                                     ui.label(f"Minimum free space: {select_storage.bytes_to_gib(ui_state.config['min_free_bytes'])} GiB").classes('rm-muted')
                                     ui.label(f"SSD preference: {'enabled' if ui_state.config.get('prefer_ssd') else 'disabled'}").classes('rm-muted')
                         with ui.expansion('Storage Targets', icon='hard_drive', value=True).classes('w-full'):
-                            with ui.column().classes('w-full gap-4 p-2'):
-                                storage_options = {item['id']: item['title'] for item in ui_state.storage_candidates}
-                                storage_choice = ui.radio(storage_options, value=ui_state.selected_storage_id).classes('w-full')
-                                for candidate in ui_state.storage_candidates:
-                                    with ui.card().classes('rm-card w-full p-4'):
-                                        ui.label(candidate['title']).classes('text-lg')
-                                        ui.label(candidate['description']).classes('rm-muted')
-                                        with ui.row().classes('rm-grid w-full'):
-                                            ui.label(f"Disk size: {candidate['disk_size_gib']} GiB").classes('rm-muted')
-                                            ui.label(f"Free region: {candidate['free_region_gib']} GiB").classes('rm-muted')
-                                            ui.label(f"Partitions: {candidate['partition_count']}").classes('rm-muted')
-                                            ui.label(f"Media: {'SSD' if candidate['is_ssd'] else 'HDD'}").classes('rm-muted')
+                            with ui.column().classes('w-full gap-4 p-2') as storage_target_container:
+                                def refresh_storage_targets():
+                                    previous_storage_id = storage_choice.value if storage_choice else ui_state.selected_storage_id
+                                    try:
+                                        ui_state.refresh_storage_targets(previous_storage_id)
+                                    except Exception as exc:
+                                        ui.notify(f'Could not refresh storage targets: {exc}', color='negative')
+                                        return
+                                    render_storage_targets()
+                                    if ui_state.storage_candidates:
+                                        ui.notify('Storage targets refreshed.', color='positive')
+                                    else:
+                                        ui.notify(ui_state.storage_unavailable_message(), color='warning')
+
+                                def render_storage_targets():
+                                    nonlocal storage_choice
+                                    storage_target_container.clear()
+                                    storage_choice = None
+                                    with storage_target_container:
+                                        with ui.row().classes('w-full items-center justify-between gap-4'):
+                                            ui.label('Available installation targets').classes('text-lg')
+                                            ui.button('Refresh targets', icon='refresh', on_click=refresh_storage_targets).props('outline')
+                                        if not ui_state.storage_candidates:
+                                            with ui.card().classes('rm-card w-full p-4 gap-2'):
+                                                ui.label('No eligible storage targets found').classes('text-lg')
+                                                ui.label(ui_state.storage_unavailable_message()).classes('rm-muted')
+                                                ui.label(f"Detected disks: {len(ui_state.disks)}").classes('rm-muted text-sm')
+                                            return
+
+                                        storage_options = {item['id']: item['title'] for item in ui_state.storage_candidates}
+                                        storage_choice = ui.radio(storage_options, value=ui_state.selected_storage_id).classes('w-full')
+                                        for candidate in ui_state.storage_candidates:
+                                            with ui.card().classes('rm-card w-full p-4'):
+                                                ui.label(candidate['title']).classes('text-lg')
+                                                ui.label(candidate['description']).classes('rm-muted')
+                                                with ui.row().classes('rm-grid w-full'):
+                                                    ui.label(f"Disk size: {candidate['disk_size_gib']} GiB").classes('rm-muted')
+                                                    ui.label(f"Free region: {candidate['free_region_gib']} GiB").classes('rm-muted')
+                                                    ui.label(f"Partitions: {candidate['partition_count']}").classes('rm-muted')
+                                                    ui.label(f"Media: {'SSD' if candidate['is_ssd'] else 'HDD'}").classes('rm-muted')
+
+                                render_storage_targets()
                         with ui.expansion('Network Configuration', icon='settings_ethernet', value=True).classes('w-full'):
                             with ui.column().classes('w-full gap-4 p-2') as network_container:
                                 interfaces_by_name = {item['name']: item for item in ui_state.network_interfaces}
@@ -893,6 +955,10 @@ def render_ui(ui_state, host: str, port: int) -> None:
                                 ui.label('This drives the target-side realtime-patch role and is applied offline from the extracted payload.').classes('rm-muted text-sm')
 
             def submit_selection():
+                if not ui_state.candidates:
+                    ui.notify(ui_state.storage_unavailable_message(), color='negative')
+                    return
+                selected_storage_id = storage_choice.value if storage_choice else ui_state.selected_storage_id
                 try:
                     ui_state.save_selection({
                         'identity': {
@@ -907,7 +973,7 @@ def render_ui(ui_state, host: str, port: int) -> None:
                                 'boot_size': boot_size.value,
                             },
                         },
-                        'selected_storage_id': storage_choice.value,
+                        'selected_storage_id': selected_storage_id,
                         'networks': network_models,
                         'software': {
                             'ssh': {
@@ -950,6 +1016,9 @@ def main():
 
     ui_state = InstallerUIState(args.autoinstall, Path(args.selection_file), args.timeout)
     if not has_gui_session():
+        if not ui_state.candidates:
+            log(ui_state.storage_unavailable_message())
+            return
         write_default_selection(ui_state)
         return
 
@@ -958,7 +1027,10 @@ def main():
     except Exception as exc:
         log(f'Installer UI failed, falling back to default selection: {exc}')
         if not ui_state.selection_path.exists():
-            write_default_selection(ui_state)
+            try:
+                write_default_selection(ui_state)
+            except Exception as fallback_exc:
+                log(f'Could not write default installer selection: {fallback_exc}')
 
 
 if __name__ == '__main__':

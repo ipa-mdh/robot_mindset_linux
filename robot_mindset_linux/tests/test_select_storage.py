@@ -206,6 +206,84 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
 
 
 class InstallerUiNetworkTests(unittest.TestCase):
+    def _storage_config(self):
+        return {
+            'encryption_key': 'setup',
+            'boot_size_text': '4G',
+            'min_free_bytes': 40 * 1024 ** 3,
+            'prefer_ssd': True,
+            'ssh_authorized_keys': [],
+            'linux_kernel_realtime': {},
+        }
+
+    def _storage_candidate(self, path='/dev/sda', scenario='free-space'):
+        return {
+            'path': path,
+            'name': Path(path).name,
+            'scenario': scenario,
+            'size': 100 * 1024 ** 3,
+            'is_ssd': False,
+            'partitions': [{'number': 1}],
+            'largest_free': {'start': 1, 'end': 60 * 1024 ** 3, 'size': 60 * 1024 ** 3},
+            'ptable': 'gpt',
+        }
+
+    def test_installer_ui_state_allows_no_storage_targets(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            selection_path = Path(tmpdir) / 'selection.json'
+            with mock.patch.object(select_storage, 'load_config', return_value=self._storage_config()), \
+                 mock.patch.object(select_storage, 'gather_disks', return_value=[]), \
+                 mock.patch.object(select_storage, 'collect_candidates', return_value=[]), \
+                 mock.patch.object(select_storage, 'extract_identity_entry', return_value={'hostname': 'robot'}), \
+                 mock.patch.object(installer_ui, 'discover_network_interfaces', return_value=[]), \
+                 mock.patch.object(installer_ui, 'extract_network_entries', return_value=[]):
+                state = installer_ui.InstallerUIState('/autoinstall.yaml', selection_path, 0)
+
+        self.assertEqual(state.disks, [])
+        self.assertEqual(state.candidates, [])
+        self.assertEqual(state.storage_candidates, [])
+        self.assertEqual(state.selected_storage_id, '')
+        self.assertIn('No eligible storage targets are available', state.storage_unavailable_message())
+
+    def test_refresh_storage_targets_updates_candidates_after_disk_change(self):
+        state = installer_ui.InstallerUIState.__new__(installer_ui.InstallerUIState)
+        state.config = self._storage_config()
+        state.selected_storage_id = ''
+
+        candidate = self._storage_candidate('/dev/sdb')
+        with mock.patch.object(select_storage, 'gather_disks', side_effect=[[], [candidate]]), \
+             mock.patch.object(select_storage, 'collect_candidates', side_effect=[[], [candidate]]):
+            state.refresh_storage_targets()
+            self.assertEqual(state.selected_storage_id, '')
+
+            state.refresh_storage_targets()
+
+        self.assertEqual(len(state.candidates), 1)
+        self.assertEqual(state.selected_storage_id, select_storage.candidate_id('/dev/sdb', 'free-space'))
+        self.assertEqual(state.storage_candidates[0]['path'], '/dev/sdb')
+
+    def test_refresh_storage_targets_preserves_available_selection(self):
+        state = installer_ui.InstallerUIState.__new__(installer_ui.InstallerUIState)
+        state.config = self._storage_config()
+        first = self._storage_candidate('/dev/sda')
+        second = self._storage_candidate('/dev/sdb')
+        state.selected_storage_id = select_storage.candidate_id('/dev/sdb', 'free-space')
+
+        with mock.patch.object(select_storage, 'gather_disks', return_value=[first, second]), \
+             mock.patch.object(select_storage, 'collect_candidates', return_value=[first, second]):
+            state.refresh_storage_targets()
+
+        self.assertEqual(state.selected_storage_id, select_storage.candidate_id('/dev/sdb', 'free-space'))
+
+    def test_build_selection_rejects_missing_storage_targets_with_clear_error(self):
+        state = installer_ui.InstallerUIState.__new__(installer_ui.InstallerUIState)
+        state.candidates = []
+        state.selected_storage_id = ''
+        state.config = self._storage_config()
+
+        with self.assertRaisesRegex(RuntimeError, 'No eligible storage targets are available'):
+            installer_ui.InstallerUIState.build_selection(state, {})
+
     def test_discover_network_interfaces_reads_sysfs_metadata(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir) / 'net'
