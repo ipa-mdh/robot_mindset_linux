@@ -312,6 +312,66 @@ def ensure_installer_runtime():
         sys.path.insert(0, path)
 
 
+def _read_sysfs_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding='utf-8').strip()
+    except OSError:
+        return ''
+
+
+def normalize_mac(value) -> str:
+    return str(value or '').strip().lower()
+
+
+def discover_network_interfaces(sysfs_root=Path('/sys/class/net')):
+    root = Path(sysfs_root)
+    if not root.is_dir():
+        return []
+
+    interfaces = []
+    for interface_path in sorted(root.iterdir(), key=lambda item: item.name):
+        name = interface_path.name
+        if name == 'lo':
+            continue
+        driver = ''
+        driver_path = interface_path / 'device/driver'
+        try:
+            if driver_path.exists():
+                driver = driver_path.resolve().name
+        except OSError:
+            driver = ''
+        interfaces.append({
+            'name': name,
+            'macaddress': normalize_mac(_read_sysfs_text(interface_path / 'address')),
+            'operstate': _read_sysfs_text(interface_path / 'operstate'),
+            'carrier': _read_sysfs_text(interface_path / 'carrier'),
+            'speed': _read_sysfs_text(interface_path / 'speed'),
+            'driver': driver,
+        })
+    return interfaces
+
+
+def interface_option_label(interface):
+    details = []
+    if interface.get('macaddress'):
+        details.append(interface['macaddress'])
+    if interface.get('operstate'):
+        details.append(interface['operstate'])
+    if interface.get('carrier'):
+        details.append(f"carrier={interface['carrier']}")
+    if interface.get('speed'):
+        details.append(f"{interface['speed']} Mb/s")
+    if interface.get('driver'):
+        details.append(interface['driver'])
+    return f"{interface.get('name', '')} ({', '.join(details)})" if details else interface.get('name', '')
+
+
+def network_preset_label(preset):
+    label = preset.get('preset_name') or preset.get('name') or preset.get('set_name') or 'preset'
+    macaddress = preset.get('preset_macaddress') or preset.get('macaddress') or ''
+    return f'{label} ({macaddress})' if macaddress else label
+
+
 def extract_network_entries(autoinstall_path):
     autoinstall = select_storage.read_autoinstall(autoinstall_path)
     network = autoinstall.get('network', {}) or {}
@@ -326,16 +386,77 @@ def extract_network_entries(autoinstall_path):
                 break
         nameservers = config.get('nameservers', {}).get('addresses', []) or []
         addresses = config.get('addresses', []) or []
+        set_name = config.get('set-name', name)
+        macaddress = normalize_mac(config.get('match', {}).get('macaddress', ''))
         entries.append({
             'name': name,
-            'set_name': config.get('set-name', name),
-            'macaddress': config.get('match', {}).get('macaddress', ''),
+            'preset_name': name,
+            'set_name': set_name,
+            'interface_name': '',
+            'macaddress': macaddress,
+            'preset_macaddress': macaddress,
+            'enabled': True,
             'dhcp4': bool(config.get('dhcp4', True)),
             'address': addresses[0] if addresses else '',
             'gateway4': gateway,
             'nameservers': nameservers,
         })
     return entries
+
+
+def build_network_models(presets, interfaces):
+    models = []
+    matched_interfaces = set()
+    interfaces_by_mac = {
+        normalize_mac(interface.get('macaddress')): interface
+        for interface in interfaces
+        if normalize_mac(interface.get('macaddress'))
+    }
+
+    for index, preset in enumerate(presets):
+        preset_name = str(
+            preset.get('preset_name')
+            or preset.get('name')
+            or preset.get('set_name')
+            or preset.get('set-name')
+            or f'network{index + 1}'
+        ).strip()
+        preset_macaddress = normalize_mac(preset.get('preset_macaddress') or preset.get('macaddress') or preset.get('mac'))
+        interface = interfaces_by_mac.get(preset_macaddress) if preset_macaddress else None
+        if interface:
+            matched_interfaces.add(interface['name'])
+        set_name = str(preset.get('set_name') or preset.get('set-name') or preset_name).strip() or preset_name
+        models.append({
+            'enabled': bool(interface),
+            'preset_name': preset_name,
+            'name': set_name,
+            'set_name': set_name,
+            'interface_name': interface['name'] if interface else '',
+            'macaddress': interface.get('macaddress', '') if interface else preset_macaddress,
+            'preset_macaddress': preset_macaddress,
+            'dhcp4': bool(preset.get('dhcp4', True)),
+            'address': str(preset.get('address') or preset.get('ipv4') or '').strip(),
+            'gateway4': str(preset.get('gateway4') or preset.get('gateway') or '').strip(),
+            'nameservers': sanitize_nameservers(preset.get('nameservers')),
+        })
+
+    for interface in interfaces:
+        if interface['name'] in matched_interfaces:
+            continue
+        models.append({
+            'enabled': True,
+            'preset_name': '',
+            'name': interface['name'],
+            'set_name': interface['name'],
+            'interface_name': interface['name'],
+            'macaddress': normalize_mac(interface.get('macaddress')),
+            'preset_macaddress': '',
+            'dhcp4': True,
+            'address': '',
+            'gateway4': '',
+            'nameservers': [],
+        })
+    return models
 
 
 def serialise_candidates(candidates):
@@ -382,7 +503,11 @@ class InstallerUIState:
             raise RuntimeError('No eligible storage targets found for the installer UI')
         self.storage_candidates = serialise_candidates(self.candidates)
         self.identity_defaults = select_storage.extract_identity_entry(autoinstall_path)
-        self.networks = extract_network_entries(autoinstall_path)
+        self.network_interfaces = discover_network_interfaces()
+        self.network_presets = extract_network_entries(autoinstall_path)
+        self.networks = build_network_models(self.network_presets, self.network_interfaces)
+        log(f'Detected network interfaces: {self.network_interfaces}')
+        log(f'Prepared network models: {self.networks}')
         self.software_defaults = {
             'ssh': {
                 'authorized_keys': self.config.get('ssh_authorized_keys', []) or [],
@@ -443,14 +568,40 @@ class InstallerUIState:
         }
 
         networks = []
-        for item in payload.get('networks') or self.networks:
-            name = str(item.get('name') or item.get('set_name') or item.get('set-name') or '').strip()
-            if not name:
+        source_networks = payload['networks'] if 'networks' in payload else self.networks
+        interfaces_by_name = {
+            interface.get('name'): interface
+            for interface in getattr(self, 'network_interfaces', [])
+            if interface.get('name')
+        }
+        used_interfaces = set()
+        for item in source_networks or []:
+            if not bool(item.get('enabled', True)):
                 continue
+            interface_name = str(item.get('interface_name') or '').strip()
+            if interface_name:
+                if interface_name in used_interfaces:
+                    raise RuntimeError(f'Interface {interface_name} is selected more than once')
+                used_interfaces.add(interface_name)
+            interface = interfaces_by_name.get(interface_name)
+            name = str(item.get('name') or item.get('set_name') or item.get('set-name') or interface_name).strip()
+            set_name = str(item.get('set_name') or item.get('set-name') or name or interface_name).strip()
+            if not name and not set_name:
+                continue
+            if not set_name:
+                set_name = name
+            if not name:
+                name = set_name
+            macaddress = normalize_mac(item.get('macaddress') or item.get('mac'))
+            if interface and normalize_mac(interface.get('macaddress')):
+                macaddress = normalize_mac(interface['macaddress'])
             network = {
+                'enabled': True,
                 'name': name,
-                'set_name': str(item.get('set_name') or item.get('set-name') or name).strip() or name,
-                'macaddress': str(item.get('macaddress') or item.get('mac') or '').strip(),
+                'set_name': set_name,
+                'interface_name': interface_name,
+                'preset_name': str(item.get('preset_name') or '').strip(),
+                'macaddress': macaddress,
                 'dhcp4': bool(item.get('dhcp4', True)),
                 'address': str(item.get('address') or item.get('ipv4') or '').strip(),
                 'gateway4': str(item.get('gateway4') or item.get('gateway') or '').strip(),
@@ -623,15 +774,25 @@ def render_ui(ui_state, host: str, port: int) -> None:
                                             ui.label(f"Media: {'SSD' if candidate['is_ssd'] else 'HDD'}").classes('rm-muted')
                         with ui.expansion('Network Configuration', icon='settings_ethernet', value=True).classes('w-full'):
                             with ui.column().classes('w-full gap-4 p-2') as network_container:
+                                interfaces_by_name = {item['name']: item for item in ui_state.network_interfaces}
+                                interface_options = {'': 'No interface selected'}
+                                interface_options.update({item['name']: interface_option_label(item) for item in ui_state.network_interfaces})
+                                preset_options = {'': 'Apply preset'}
+                                preset_options.update({str(index): network_preset_label(item) for index, item in enumerate(ui_state.network_presets)})
+
                                 def remove_network(index: int):
                                     network_models.pop(index)
                                     render_networks()
 
                                 def add_network():
                                     network_models.append({
+                                        'enabled': True,
+                                        'preset_name': '',
                                         'name': f'network{len(network_models) + 1}',
-                                        'set_name': '',
+                                        'set_name': f'network{len(network_models) + 1}',
+                                        'interface_name': '',
                                         'macaddress': '',
+                                        'preset_macaddress': '',
                                         'dhcp4': True,
                                         'address': '',
                                         'gateway4': '',
@@ -639,22 +800,72 @@ def render_ui(ui_state, host: str, port: int) -> None:
                                     })
                                     render_networks()
 
+                                def set_network_interface(row: dict, interface_name: str):
+                                    row['interface_name'] = interface_name or ''
+                                    interface = interfaces_by_name.get(row['interface_name'])
+                                    if interface:
+                                        row['enabled'] = True
+                                        row['macaddress'] = interface.get('macaddress', '')
+                                        if not row.get('name'):
+                                            row['name'] = interface['name']
+                                        if not row.get('set_name'):
+                                            row['set_name'] = row.get('name') or interface['name']
+                                    else:
+                                        row['enabled'] = False
+                                        row['macaddress'] = row.get('preset_macaddress', row.get('macaddress', ''))
+                                    render_networks()
+
+                                def apply_preset(row: dict, preset_index: str):
+                                    if preset_index == '':
+                                        return
+                                    preset = ui_state.network_presets[int(preset_index)]
+                                    interface = interfaces_by_name.get(row.get('interface_name', ''))
+                                    row.update({
+                                        'enabled': bool(interface),
+                                        'preset_name': preset.get('preset_name') or preset.get('name') or '',
+                                        'name': preset.get('set_name') or preset.get('set-name') or preset.get('name') or row.get('name', ''),
+                                        'set_name': preset.get('set_name') or preset.get('set-name') or preset.get('name') or row.get('set_name', ''),
+                                        'macaddress': interface.get('macaddress', '') if interface else normalize_mac(preset.get('macaddress')),
+                                        'preset_macaddress': normalize_mac(preset.get('preset_macaddress') or preset.get('macaddress')),
+                                        'dhcp4': bool(preset.get('dhcp4', True)),
+                                        'address': str(preset.get('address') or preset.get('ipv4') or '').strip(),
+                                        'gateway4': str(preset.get('gateway4') or preset.get('gateway') or '').strip(),
+                                        'nameservers': sanitize_nameservers(preset.get('nameservers')),
+                                    })
+                                    render_networks()
+
                                 def render_networks():
                                     network_container.clear()
                                     with network_container:
+                                        with ui.card().classes('rm-card w-full p-4 gap-2'):
+                                            ui.label('Detected Interfaces').classes('text-lg')
+                                            if not ui_state.network_interfaces:
+                                                ui.label('No network interfaces detected.').classes('rm-muted')
+                                            for interface in ui_state.network_interfaces:
+                                                ui.label(interface_option_label(interface)).classes('rm-muted')
                                         ui.button('Add Network', icon='add', on_click=add_network).props('outline')
                                         if not network_models:
-                                            ui.label('No network presets configured.').classes('rm-muted')
+                                            ui.label('No network rows configured.').classes('rm-muted')
                                         for index, network in enumerate(network_models):
                                             with ui.card().classes('rm-card w-full p-4 gap-4'):
                                                 with ui.row().classes('w-full items-center justify-between'):
-                                                    ui.label(network.get('name') or f'Network {index + 1}').classes('text-lg')
+                                                    title = network.get('set_name') or network.get('name') or f'Network {index + 1}'
+                                                    if network.get('preset_name'):
+                                                        title = f"{title} - preset {network['preset_name']}"
+                                                    ui.label(title).classes('text-lg')
                                                     ui.button(icon='delete', color='negative', on_click=lambda idx=index: remove_network(idx)).props('flat round')
                                                 with ui.grid(columns=2).classes('w-full gap-4'):
+                                                    enabled_input = ui.checkbox('Enabled', value=bool(network.get('enabled', True))).classes('w-full')
+                                                    enabled_input.on('update:model-value', lambda e, row=network: row.update(enabled=bool(e.value)))
+                                                    interface_select = ui.select(interface_options, value=network.get('interface_name', ''), label='Hardware Interface').classes('w-full')
+                                                    interface_select.on('update:model-value', lambda e, row=network: set_network_interface(row, e.value))
+                                                    if preset_options:
+                                                        preset_select = ui.select(preset_options, value='', label='Preset').classes('w-full')
+                                                        preset_select.on('update:model-value', lambda e, row=network: apply_preset(row, e.value))
                                                     name_input = ui.input('Name', value=network.get('name', '')).classes('w-full')
                                                     name_input.on('update:model-value', lambda e, row=network: row.update(name=e.value, set_name=e.value))
                                                     mac_input = ui.input('MAC Address', value=network.get('macaddress', '')).classes('w-full')
-                                                    mac_input.on('update:model-value', lambda e, row=network: row.update(macaddress=e.value))
+                                                    mac_input.on('update:model-value', lambda e, row=network: row.update(macaddress=normalize_mac(e.value)))
                                                     dhcp_select = ui.select({'true': 'DHCP', 'false': 'Static'}, value='true' if network.get('dhcp4', True) else 'false', label='IPv4 Mode').classes('w-full')
                                                     dhcp_select.on('update:model-value', lambda e, row=network: row.update(dhcp4=(e.value == 'true')))
                                                     address_input = ui.input('IPv4 Address / CIDR', value=network.get('address', '')).classes('w-full')

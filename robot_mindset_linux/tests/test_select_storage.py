@@ -146,14 +146,24 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
                 'identity': {'username': 'robot'},
                 'networks': [
                     {
+                        'enabled': True,
                         'name': 'machine',
-                        'set_name': 'machine',
+                        'set_name': 'machine0',
+                        'interface_name': 'ens18',
                         'macaddress': 'AA:BB:CC:DD:EE:FF',
                         'dhcp4': False,
                         'address': '192.168.1.10/24',
                         'gateway4': '192.168.1.1',
                         'nameservers': ['1.1.1.1', '9.9.9.9'],
-                    }
+                    },
+                    {
+                        'enabled': False,
+                        'name': 'stale',
+                        'set_name': 'stale0',
+                        'interface_name': '',
+                        'macaddress': '00:11:22:33:44:55',
+                        'dhcp4': True,
+                    },
                 ],
                 'software': {
                     'ssh': {'authorized_keys': ['ssh-ed25519 AAAA test@example']},
@@ -186,9 +196,197 @@ class ApplyInstallerSelectionTests(unittest.TestCase):
             roles = updated_playbook[0]['roles']
             self.assertEqual(roles[0]['role'], 'balena-etcher')
             self.assertEqual(roles[1]['role'], 'NIC')
-            self.assertEqual(roles[1]['network_name'], 'machine')
+            self.assertEqual(roles[1]['network_name'], 'machine0')
+            self.assertEqual(roles[1]['ethernet_interface_name'], 'machine0')
+            self.assertEqual(roles[1]['ipv4'], '192.168.1.10/24')
+            self.assertNotIn('stale0', [role.get('network_name') for role in roles if isinstance(role, dict)])
+            self.assertNotIn('old', [role.get('network_name') for role in roles if isinstance(role, dict)])
             self.assertEqual(roles[2]['role'], 'realtime-patch')
             self.assertTrue((target_root / 'installer-selection.json').exists())
+
+
+class InstallerUiNetworkTests(unittest.TestCase):
+    def test_discover_network_interfaces_reads_sysfs_metadata(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir) / 'net'
+            root.mkdir()
+            drivers = Path(tmpdir) / 'drivers'
+            driver = drivers / 'e1000e'
+            driver.mkdir(parents=True)
+
+            lo = root / 'lo'
+            lo.mkdir()
+            (lo / 'address').write_text('00:00:00:00:00:00\n', encoding='utf-8')
+
+            ens1 = root / 'ens1'
+            (ens1 / 'device').mkdir(parents=True)
+            (ens1 / 'address').write_text('AA:BB:CC:DD:EE:FF\n', encoding='utf-8')
+            (ens1 / 'operstate').write_text('up\n', encoding='utf-8')
+            (ens1 / 'carrier').write_text('1\n', encoding='utf-8')
+            (ens1 / 'speed').write_text('1000\n', encoding='utf-8')
+            (ens1 / 'device' / 'driver').symlink_to(driver)
+
+            ens2 = root / 'ens2'
+            ens2.mkdir()
+            (ens2 / 'address').write_text('11:22:33:44:55:66\n', encoding='utf-8')
+
+            interfaces = installer_ui.discover_network_interfaces(root)
+
+        self.assertEqual([item['name'] for item in interfaces], ['ens1', 'ens2'])
+        self.assertEqual(interfaces[0]['macaddress'], 'aa:bb:cc:dd:ee:ff')
+        self.assertEqual(interfaces[0]['operstate'], 'up')
+        self.assertEqual(interfaces[0]['carrier'], '1')
+        self.assertEqual(interfaces[0]['speed'], '1000')
+        self.assertEqual(interfaces[0]['driver'], 'e1000e')
+        self.assertEqual(interfaces[1]['carrier'], '')
+
+    def test_build_network_models_maps_presets_and_adds_dhcp_fallbacks(self):
+        presets = [
+            {
+                'name': 'machine',
+                'set_name': 'machine0',
+                'macaddress': 'AA:BB:CC:DD:EE:FF',
+                'dhcp4': False,
+                'address': '192.168.1.10/24',
+                'gateway4': '192.168.1.1',
+                'nameservers': ['1.1.1.1'],
+            },
+            {
+                'name': 'stale',
+                'set_name': 'stale0',
+                'macaddress': '00:11:22:33:44:55',
+                'dhcp4': False,
+                'address': '10.0.0.10/24',
+            },
+        ]
+        interfaces = [
+            {'name': 'ens1', 'macaddress': 'aa:bb:cc:dd:ee:ff'},
+            {'name': 'ens2', 'macaddress': '11:22:33:44:55:66'},
+        ]
+
+        models = installer_ui.build_network_models(presets, interfaces)
+
+        self.assertEqual(models[0]['preset_name'], 'machine')
+        self.assertTrue(models[0]['enabled'])
+        self.assertEqual(models[0]['interface_name'], 'ens1')
+        self.assertEqual(models[0]['macaddress'], 'aa:bb:cc:dd:ee:ff')
+        self.assertFalse(models[0]['dhcp4'])
+        self.assertFalse(models[1]['enabled'])
+        self.assertEqual(models[1]['interface_name'], '')
+        self.assertEqual(models[1]['preset_macaddress'], '00:11:22:33:44:55')
+        self.assertEqual(models[2]['name'], 'ens2')
+        self.assertTrue(models[2]['enabled'])
+        self.assertTrue(models[2]['dhcp4'])
+
+    def test_build_selection_uses_selected_hardware_mac_and_skips_inactive_presets(self):
+        state = installer_ui.InstallerUIState.__new__(installer_ui.InstallerUIState)
+        state.candidates = [{'path': '/dev/sda', 'scenario': 'free-space'}]
+        state.selected_storage_id = select_storage.candidate_id('/dev/sda', 'free-space')
+        state.identity_defaults = {'hostname': 'robot', 'realname': 'Robot', 'username': 'robot', 'password': 'hash'}
+        state.config = {'encryption_key': 'setup', 'boot_size_text': '4G'}
+        state.network_interfaces = [
+            {'name': 'ens2', 'macaddress': '11:22:33:44:55:66'},
+        ]
+        state.networks = []
+        state.software_defaults = {
+            'ssh': {'authorized_keys': []},
+            'linux_kernel': {'realtime': {'enable': False}},
+        }
+
+        selection = installer_ui.InstallerUIState.build_selection(state, {
+            'selected_storage_id': state.selected_storage_id,
+            'networks': [
+                {
+                    'enabled': False,
+                    'name': 'stale',
+                    'set_name': 'stale0',
+                    'macaddress': '00:11:22:33:44:55',
+                    'dhcp4': False,
+                },
+                {
+                    'enabled': True,
+                    'name': 'stale',
+                    'set_name': 'robot0',
+                    'interface_name': 'ens2',
+                    'macaddress': '00:11:22:33:44:55',
+                    'dhcp4': False,
+                    'address': '10.0.0.10/24',
+                    'gateway4': '10.0.0.1',
+                    'nameservers': '9.9.9.9, 1.1.1.1',
+                },
+            ],
+        })
+
+        self.assertEqual(len(selection['networks']), 1)
+        self.assertEqual(selection['networks'][0]['set_name'], 'robot0')
+        self.assertEqual(selection['networks'][0]['interface_name'], 'ens2')
+        self.assertEqual(selection['networks'][0]['macaddress'], '11:22:33:44:55:66')
+        self.assertEqual(selection['networks'][0]['nameservers'], ['9.9.9.9', '1.1.1.1'])
+
+    def test_build_selection_rejects_duplicate_enabled_interface_mappings(self):
+        state = installer_ui.InstallerUIState.__new__(installer_ui.InstallerUIState)
+        state.candidates = [{'path': '/dev/sda', 'scenario': 'free-space'}]
+        state.selected_storage_id = select_storage.candidate_id('/dev/sda', 'free-space')
+        state.identity_defaults = {'hostname': 'robot', 'realname': 'Robot', 'username': 'robot', 'password': 'hash'}
+        state.config = {'encryption_key': 'setup', 'boot_size_text': '4G'}
+        state.network_interfaces = [{'name': 'ens2', 'macaddress': '11:22:33:44:55:66'}]
+        state.networks = []
+        state.software_defaults = {
+            'ssh': {'authorized_keys': []},
+            'linux_kernel': {'realtime': {'enable': False}},
+        }
+
+        with self.assertRaises(RuntimeError):
+            installer_ui.InstallerUIState.build_selection(state, {
+                'selected_storage_id': state.selected_storage_id,
+                'networks': [
+                    {'enabled': True, 'name': 'one', 'set_name': 'one', 'interface_name': 'ens2'},
+                    {'enabled': True, 'name': 'two', 'set_name': 'two', 'interface_name': 'ens2'},
+                ],
+            })
+
+    def test_build_network_config_emits_enabled_mapped_rows(self):
+        selection = {
+            'networks': [
+                {
+                    'enabled': False,
+                    'name': 'stale',
+                    'set_name': 'stale0',
+                    'macaddress': '00:11:22:33:44:55',
+                    'dhcp4': True,
+                },
+                {
+                    'enabled': True,
+                    'name': 'ens2',
+                    'set_name': 'ens2',
+                    'interface_name': 'ens2',
+                    'macaddress': '11:22:33:44:55:66',
+                    'dhcp4': True,
+                },
+                {
+                    'enabled': True,
+                    'name': 'machine',
+                    'set_name': 'robot0',
+                    'interface_name': 'ens1',
+                    'macaddress': 'AA:BB:CC:DD:EE:FF',
+                    'dhcp4': False,
+                    'address': '192.168.1.10/24',
+                    'gateway4': '192.168.1.1',
+                    'nameservers': ['1.1.1.1', '9.9.9.9'],
+                },
+            ],
+        }
+
+        network = select_storage.build_network_config(selection)
+
+        self.assertEqual(set(network['ethernets']), {'ens2', 'robot0'})
+        self.assertTrue(network['ethernets']['ens2']['dhcp4'])
+        self.assertEqual(network['ethernets']['ens2']['match']['macaddress'], '11:22:33:44:55:66')
+        self.assertEqual(network['ethernets']['robot0']['set-name'], 'robot0')
+        self.assertEqual(network['ethernets']['robot0']['match']['macaddress'], 'aa:bb:cc:dd:ee:ff')
+        self.assertEqual(network['ethernets']['robot0']['addresses'], ['192.168.1.10/24'])
+        self.assertEqual(network['ethernets']['robot0']['routes'], [{'to': 'default', 'via': '192.168.1.1'}])
+        self.assertEqual(network['ethernets']['robot0']['nameservers']['addresses'], ['1.1.1.1', '9.9.9.9'])
 
 
 class InstallerUiBundleTests(unittest.TestCase):

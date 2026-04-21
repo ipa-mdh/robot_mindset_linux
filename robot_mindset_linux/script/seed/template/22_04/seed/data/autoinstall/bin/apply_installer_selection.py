@@ -60,13 +60,16 @@ def write_sudoers(target_root: Path, selection: dict) -> None:
 
 
 def build_network_role(item: dict) -> dict | None:
-    name = item.get('name') or item.get('set_name') or item.get('set-name')
+    if not bool(item.get('enabled', True)):
+        return None
+    name = item.get('set_name') or item.get('set-name') or item.get('name') or item.get('interface_name')
     if not name:
         return None
+    interface_name = item.get('set_name') or item.get('set-name') or name
     role = {
         'role': 'NIC',
         'network_name': name,
-        'ethernet_interface_name': name,
+        'ethernet_interface_name': interface_name,
         'auto_connect': True,
     }
     if bool(item.get('dhcp4', True)):

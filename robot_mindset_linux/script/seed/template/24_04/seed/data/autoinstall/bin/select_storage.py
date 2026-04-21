@@ -640,14 +640,21 @@ def build_network_config(selection):
 
     network = {'version': 2, 'ethernets': {}}
     for item in entries:
-        name = item.get('name') or item.get('set_name') or item.get('set-name')
+        if not bool(item.get('enabled', True)):
+            continue
+        name = (
+            item.get('set_name')
+            or item.get('set-name')
+            or item.get('name')
+            or item.get('interface_name')
+        )
         if not name:
             continue
         dhcp4 = bool(item.get('dhcp4', True))
         interface = {'dhcp4': dhcp4}
         macaddress = item.get('macaddress') or item.get('mac')
         if macaddress:
-            interface['match'] = {'macaddress': macaddress}
+            interface['match'] = {'macaddress': str(macaddress).strip().lower()}
         interface['set-name'] = item.get('set_name') or item.get('set-name') or name
         if not dhcp4:
             address = item.get('address') or item.get('ipv4')
@@ -660,7 +667,7 @@ def build_network_config(selection):
             if nameservers:
                 interface['nameservers'] = {'addresses': nameservers}
         network['ethernets'][name] = interface
-    return network
+    return network if network['ethernets'] else None
 
 
 def read_autoinstall(autoinstall_path):
